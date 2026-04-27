@@ -1256,14 +1256,21 @@ public func iconFromSymbol(name: String, scale: NSImage.SymbolScale) -> NSImage 
 }
 
 public func showAlert(_ message: String, _ information: String? = nil, _ style: NSAlert.Style = .informational) {
-    let alert = NSAlert()
-    alert.messageText = message
-    if let information = information {
-        alert.informativeText = information
+    let show = {
+        let alert = NSAlert()
+        alert.messageText = message
+        if let information = information {
+            alert.informativeText = information
+        }
+        alert.addButton(withTitle: "OK")
+        alert.alertStyle = style
+        alert.runModal()
     }
-    alert.addButton(withTitle: "OK")
-    alert.alertStyle = style
-    alert.runModal()
+    if Thread.isMainThread {
+        show()
+    } else {
+        DispatchQueue.main.async(execute: show)
+    }
 }
 
 var isDarkMode: Bool {
@@ -1277,8 +1284,9 @@ var isDarkMode: Bool {
 
 public class PreferencesSection: NSStackView {
     private let container: NSStackView = NSStackView()
-    
-    public init(label: String = "", id: String? = nil, _ components: [NSView] = []) {
+    private var subtitleField: NSTextField?
+
+    public init(title: String = "", subtitle: String = "", id: String? = nil, _ components: [NSView] = []) {
         super.init(frame: .zero)
         
         self.orientation = .vertical
@@ -1287,8 +1295,8 @@ public class PreferencesSection: NSStackView {
             self.identifier = NSUserInterfaceItemIdentifier(id)
         }
         
-        if label != "" {
-            self.addLabel(label)
+        if title != "" || subtitle != "" {
+            self.addHeader(title: title, subtitle: subtitle)
         }
         
         self.container.orientation = .vertical
@@ -1317,22 +1325,33 @@ public class PreferencesSection: NSStackView {
         self.container.layer?.backgroundColor = NSColor.quaternaryLabelColor.withAlphaComponent(0.025).cgColor
     }
     
-    private func addLabel(_ value: String) {
+    private func addHeader(title: String, subtitle: String) {
         let view = NSStackView()
         view.heightAnchor.constraint(equalToConstant: 26).isActive = true
         
         let space = NSView()
         space.widthAnchor.constraint(equalToConstant: 4).isActive = true
         
-        let field: NSTextField = TextView()
-        field.font = NSFont.systemFont(ofSize: 12, weight: .medium)
-        field.stringValue = value
+        let firstField: NSTextField = TextView()
+        firstField.font = NSFont.systemFont(ofSize: 12, weight: .medium)
+        firstField.stringValue = title
+        
+        let secondField: NSTextField = TextView()
+        secondField.font = NSFont.systemFont(ofSize: 11, weight: .regular)
+        secondField.textColor = .placeholderTextColor
+        secondField.stringValue = subtitle
+        self.subtitleField = secondField
         
         view.addArrangedSubview(space)
-        view.addArrangedSubview(field)
+        view.addArrangedSubview(firstField)
         view.addArrangedSubview(NSView())
+        view.addArrangedSubview(secondField)
         
         self.addArrangedSubview(view)
+    }
+    
+    public func setSubtitle(_ value: String) {
+        self.subtitleField?.stringValue = value
     }
     
     public func add(_ view: NSView) {
@@ -1540,6 +1559,7 @@ public class StepperInput: NSStackView, NSTextFieldDelegate, PreferencesSwitchWi
         self.valueView.delegate = self
         self.valueView.stringValue = "\(value)"
         self.valueView.translatesAutoresizingMaskIntoConstraints = false
+        self.valueView.widthAnchor.constraint(greaterThanOrEqualToConstant: 35).isActive = true
         
         self.stepperView.font = NSFont.systemFont(ofSize: 12, weight: .regular)
         self.stepperView.doubleValue = Double(value)/100
@@ -1555,7 +1575,7 @@ public class StepperInput: NSStackView, NSTextFieldDelegate, PreferencesSwitchWi
         
         if units == nil {
             if unit == "%" {
-                self.widthAnchor.constraint(equalToConstant: 68).isActive = true
+                self.widthAnchor.constraint(equalToConstant: 80).isActive = true
             }
             if visibileUnit {
                 let symbol: NSTextField = LabelField(unit)
