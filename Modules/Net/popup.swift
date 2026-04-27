@@ -35,6 +35,7 @@ internal class Popup: PopupWrapper {
     private var totalUploadField: ValueField? = nil
     private var totalDownloadLabel: LabelField? = nil
     private var totalDownloadField: ValueField? = nil
+    private var totalTimeField: ValueField? = nil
     private var statusField: ValueField? = nil
     private var connectivityField: ValueField? = nil
     private var latencyField: ValueField? = nil
@@ -82,7 +83,6 @@ internal class Popup: PopupWrapper {
     private var processesInitialized: Bool = false
     private var connectionInitialized: Bool = false
     
-    private var lastReset: Date = Date()
     private var latency: [Double] = []
     private var jitter: [Double] = []
     
@@ -266,6 +266,7 @@ internal class Popup: PopupWrapper {
         
         let totalUpload = popupWithColorRow(view, color: self.uploadColor, title: "\(localizedString("Total upload")):", value: "0")
         let totalDownload = popupWithColorRow(view, color: self.downloadColor, title: "\(localizedString("Total download")):", value: "0")
+        self.totalTimeField = popupRow(view, title: "\(localizedString("Time")):", value: Network_Usage.elapsedTimeString(from: Date())).1
         
         self.uploadColorView = totalUpload.0
         self.totalUploadLabel = totalUpload.1
@@ -428,18 +429,12 @@ internal class Popup: PopupWrapper {
                 self.downloadValue = value.bandwidth.download
                 self.setUploadDownloadFields()
                 
+                let duration = Network_Usage.elapsedTimeString(from: value.totalSince)
                 self.totalUploadField?.stringValue = Units(bytes: value.total.upload).getReadableMemory()
                 self.totalDownloadField?.stringValue = Units(bytes: value.total.download).getReadableMemory()
-                
-                let form = DateComponentsFormatter()
-                form.maximumUnitCount = 2
-                form.unitsStyle = .full
-                form.allowedUnits = [.day, .hour, .minute]
-                
-                if let duration = form.string(from: self.lastReset, to: Date()) {
-                    self.totalUploadLabel?.toolTip = localizedString("Last reset", duration)
-                    self.totalDownloadLabel?.toolTip = localizedString("Last reset", duration)
-                }
+                self.totalTimeField?.stringValue = duration
+                self.totalUploadLabel?.toolTip = localizedString("Last reset", duration)
+                self.totalDownloadLabel?.toolTip = localizedString("Last reset", duration)
                 
                 if let interface = value.interface {
                     self.interfaceField?.stringValue = "\(interface.displayName) (\(interface.BSDName)"
@@ -944,10 +939,10 @@ internal class Popup: PopupWrapper {
         NotificationCenter.default.post(name: .resetTotalNetworkUsage, object: nil, userInfo: nil)
         self.totalUploadField?.stringValue = Units(bytes: 0).getReadableMemory()
         self.totalDownloadField?.stringValue = Units(bytes: 0).getReadableMemory()
-        self.lastReset = Date()
+        self.totalTimeField?.stringValue = Network_Usage.elapsedTimeString(from: Date())
     }
     
     @objc private func resetTotalNetworkUsageCallback() {
-        self.lastReset = Date()
+        self.totalTimeField?.stringValue = Network_Usage.elapsedTimeString(from: Date())
     }
 }

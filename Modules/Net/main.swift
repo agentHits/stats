@@ -71,6 +71,7 @@ public struct Bandwidth: Codable {
 public struct Network_Usage: Codable, RemoteType {
     var bandwidth: Bandwidth = Bandwidth()
     var total: Bandwidth = Bandwidth()
+    var totalSince: Date = Date()
     
     var laddr: Network_addr = Network_addr() // local ip
     var raddr: Network_addr = Network_addr() // remote ip
@@ -82,6 +83,57 @@ public struct Network_Usage: Codable, RemoteType {
     var status: Bool = false
     
     var wifiDetails: Network_wifi = Network_wifi()
+
+    enum CodingKeys: String, CodingKey {
+        case bandwidth
+        case total
+        case totalSince
+        case laddr
+        case raddr
+        case dns
+        case interface
+        case connectionType
+        case status
+        case wifiDetails
+    }
+
+    init(
+        bandwidth: Bandwidth = Bandwidth(),
+        total: Bandwidth = Bandwidth(),
+        totalSince: Date = Date(),
+        laddr: Network_addr = Network_addr(),
+        raddr: Network_addr = Network_addr(),
+        dns: [String] = [],
+        interface: Network_interface? = nil,
+        connectionType: Network_t? = nil,
+        status: Bool = false,
+        wifiDetails: Network_wifi = Network_wifi()
+    ) {
+        self.bandwidth = bandwidth
+        self.total = total
+        self.totalSince = totalSince
+        self.laddr = laddr
+        self.raddr = raddr
+        self.dns = dns
+        self.interface = interface
+        self.connectionType = connectionType
+        self.status = status
+        self.wifiDetails = wifiDetails
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.bandwidth = try container.decode(Bandwidth.self, forKey: .bandwidth)
+        self.total = try container.decode(Bandwidth.self, forKey: .total)
+        self.totalSince = try container.decodeIfPresent(Date.self, forKey: .totalSince) ?? Date()
+        self.laddr = try container.decode(Network_addr.self, forKey: .laddr)
+        self.raddr = try container.decode(Network_addr.self, forKey: .raddr)
+        self.dns = try container.decode([String].self, forKey: .dns)
+        self.interface = try container.decodeIfPresent(Network_interface.self, forKey: .interface)
+        self.connectionType = try container.decodeIfPresent(Network_t.self, forKey: .connectionType)
+        self.status = try container.decode(Bool.self, forKey: .status)
+        self.wifiDetails = try container.decode(Network_wifi.self, forKey: .wifiDetails)
+    }
     
     mutating func reset() {
         self.bandwidth = Bandwidth()
@@ -95,6 +147,19 @@ public struct Network_Usage: Codable, RemoteType {
         self.connectionType = nil
         
         self.wifiDetails.reset()
+    }
+
+    mutating func resetTotal(since date: Date = Date()) {
+        self.total = Bandwidth()
+        self.totalSince = date
+    }
+
+    static func elapsedTimeString(from start: Date, to end: Date = Date()) -> String {
+        let form = DateComponentsFormatter()
+        form.maximumUnitCount = 4
+        form.unitsStyle = .abbreviated
+        form.allowedUnits = [.day, .hour, .minute, .second]
+        return form.string(from: start, to: end) ?? localizedString("Unknown")
     }
     
     public func remote() -> Data? {

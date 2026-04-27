@@ -503,8 +503,9 @@ internal class UsageReader: Reader<Network_Usage>, CWEventDelegate {
     }
     
     @objc func resetTotalNetworkUsage() {
-        self.usage.total = Bandwidth()
+        self.usage.resetTotal()
         self.save(self.usage)
+        self.callback(self.usage)
     }
     
     private func startListeningForWifiEvents() {
