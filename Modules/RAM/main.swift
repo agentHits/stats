@@ -62,6 +62,7 @@ public class RAM: Module {
     
     private var usageReader: UsageReader? = nil
     private var processReader: ProcessReader? = nil
+    private var swapProcessReader: SwapProcessReader? = nil
     
     private var splitValueState: Bool {
         return Store.shared.bool(key: "\(self.config.name)_splitValue", defaultValue: false)
@@ -125,6 +126,7 @@ public class RAM: Module {
         }
         self.settingsView.setTopInterval = { [weak self] value in
             self?.processReader?.setInterval(value)
+            self?.swapProcessReader?.setInterval(value)
         }
         
         self.usageReader = UsageReader(.RAM) { [weak self] value in
@@ -135,15 +137,22 @@ public class RAM: Module {
                 self?.popupView.processCallback(list)
             }
         }
-        
-        self.settingsView.callbackWhenUpdateNumberOfProcesses = { [weak self] in
-            self?.popupView.numberOfProcessesUpdated()
-            DispatchQueue.global(qos: .background).async {
-                self?.processReader?.read()
+        self.swapProcessReader = SwapProcessReader(.RAM) { [weak self] value in
+            if let list = value {
+                self?.previewView.swapProcessCallback(list)
             }
         }
         
-        self.setReaders([self.usageReader, self.processReader])
+        self.settingsView.callbackWhenUpdateNumberOfProcesses = { [weak self] in
+            self?.popupView.numberOfProcessesUpdated()
+            self?.previewView.numberOfProcessesUpdated()
+            DispatchQueue.global(qos: .background).async {
+                self?.processReader?.read()
+                self?.swapProcessReader?.read()
+            }
+        }
+        
+        self.setReaders([self.usageReader, self.processReader, self.swapProcessReader])
     }
     
     private func loadCallback(_ raw: RAM_Usage?) {

@@ -20,6 +20,11 @@ internal class Preview: PreviewWrapper {
     private var pressureLineChart: LineChartView? = nil
     private var swapCircle: PieChartView? = nil
     private var swapLineChart: LineChartView? = nil
+    private var swapContainer: NSStackView? = nil
+    private var swapHeightConstraint: NSLayoutConstraint? = nil
+    private var swapProcesses: ProcessesView? = nil
+    private var swapProcessesInitialized: Bool = false
+    private let processHeight: CGFloat = 22
     
     private var appColorState: SColor = .secondBlue
     private var appColor: NSColor { self.appColorState.additional as? NSColor ?? NSColor.systemRed }
@@ -41,6 +46,15 @@ internal class Preview: PreviewWrapper {
     private var swapField: NSTextField? = nil
     
     private var initialized: Bool = false
+    private var swapProcessCount: Int {
+        Store.shared.int(key: "\(self.module.stringValue)_processes", defaultValue: 8)
+    }
+    private var swapProcessesHeight: CGFloat {
+        self.swapProcessCount == 0 ? 0 : (self.processHeight * CGFloat(self.swapProcessCount + 1)) + Constants.Settings.margin
+    }
+    private var swapViewHeight: CGFloat {
+        90 + self.swapProcessesHeight
+    }
     
     public init(_ module: ModuleType) {
         super.init(type: module)
@@ -212,9 +226,12 @@ internal class Preview: PreviewWrapper {
     private func swapView() -> NSView {
         let view = NSStackView()
         view.distribution = .fill
-        view.orientation = .horizontal
+        view.orientation = .vertical
         view.translatesAutoresizingMaskIntoConstraints = false
-        view.heightAnchor.constraint(equalToConstant: 90).isActive = true
+        let heightConstraint = view.heightAnchor.constraint(equalToConstant: self.swapViewHeight)
+        heightConstraint.isActive = true
+        self.swapContainer = view
+        self.swapHeightConstraint = heightConstraint
         view.edgeInsets = NSEdgeInsets(
             top: Constants.Settings.margin,
             left: Constants.Settings.margin,
@@ -222,6 +239,12 @@ internal class Preview: PreviewWrapper {
             right: Constants.Settings.margin
         )
         view.spacing = Constants.Settings.margin
+
+        let chartView = NSStackView()
+        chartView.distribution = .fill
+        chartView.orientation = .horizontal
+        chartView.heightAnchor.constraint(equalToConstant: 90).isActive = true
+        chartView.spacing = Constants.Settings.margin
         
         let circle = PieChartView()
         circle.widthAnchor.constraint(equalToConstant: 90).isActive = true
@@ -236,10 +259,53 @@ internal class Preview: PreviewWrapper {
         }
         self.swapLineChart = chart
         
-        view.addArrangedSubview(circle)
-        view.addArrangedSubview(chart)
+        chartView.addArrangedSubview(circle)
+        chartView.addArrangedSubview(chart)
+        view.addArrangedSubview(chartView)
+
+        if self.swapProcessCount > 0 {
+            let processes = self.makeSwapProcessesView()
+            self.swapProcesses = processes
+            view.addArrangedSubview(processes)
+        }
         
         return view
+    }
+
+    private func makeSwapProcessesView() -> ProcessesView {
+        let processes = ProcessesView(
+            values: [
+                (localizedString("Compressed"), self.compressedColor),
+                ("Page-ins", self.chartColor)
+            ],
+            n: self.swapProcessCount
+        )
+        processes.toolTip = localizedString("Swap")
+        processes.heightAnchor.constraint(equalToConstant: self.processHeight * CGFloat(self.swapProcessCount + 1)).isActive = true
+        return processes
+    }
+
+    public func numberOfProcessesUpdated() {
+        DispatchQueue.main.async(execute: {
+            self.rebuildSwapProcessesView()
+        })
+    }
+
+    private func rebuildSwapProcessesView() {
+        if let processes = self.swapProcesses {
+            self.swapContainer?.removeArrangedSubview(processes)
+            processes.removeFromSuperview()
+            self.swapProcesses = nil
+        }
+
+        if self.swapProcessCount > 0 {
+            let processes = self.makeSwapProcessesView()
+            self.swapProcesses = processes
+            self.swapContainer?.addArrangedSubview(processes)
+        }
+
+        self.swapHeightConstraint?.constant = self.swapViewHeight
+        self.swapProcessesInitialized = false
     }
     
     public func loadCallback(_ value: RAM_Usage) {
@@ -279,6 +345,27 @@ internal class Preview: PreviewWrapper {
             self.loadLineChart?.addValue(value.usage)
             self.pressureLineChart?.addValue(Double(value.pressure.value.number())/2)
             self.swapLineChart?.addValue(value.swap.used)
+        })
+    }
+
+    public func swapProcessCallback(_ list: [SwapProcess]) {
+        DispatchQueue.main.async(execute: {
+            if !(self.window?.isVisible ?? false) && self.swapProcessesInitialized {
+                return
+            }
+            if self.swapProcesses?.count != self.swapProcessCount {
+                self.rebuildSwapProcessesView()
+            }
+            self.swapProcesses?.clear()
+
+            for (idx, process) in list.prefix(self.swapProcessCount).enumerated() {
+                self.swapProcesses?.set(idx, process, [
+                    Units(bytes: Int64(process.compressed)).getReadableMemory(style: .memory),
+                    "\(process.pageins)"
+                ])
+            }
+
+            self.swapProcessesInitialized = true
         })
     }
 }

@@ -130,6 +130,22 @@ internal class UsageReader: Reader<RAM_Usage> {
     }
 }
 
+internal struct SwapProcess: Codable, Process_p {
+    let pid: Int
+    let name: String
+    let memory: Double
+    let compressed: Double
+    let pageins: Int
+    var icon: NSImage {
+        get {
+            if let app = NSRunningApplication(processIdentifier: pid_t(self.pid)), let icon = app.icon {
+                return icon
+            }
+            return Constants.defaultProcessIcon
+        }
+    }
+}
+
 public class ProcessReader: Reader<[TopProcess]> {
     private let title: String = "RAM"
     
@@ -280,15 +296,7 @@ public class ProcessReader: Reader<[TopProcess]> {
         }
         
         let pid = Int(pidString.filter("01234567890.".contains)) ?? 0
-        var usage = Double(usageString.filter("01234567890.".contains)) ?? 0
-        if usageString.last == "G" {
-            usage *= 1024 // apply gigabyte multiplier
-        } else if usageString.last == "K" {
-            usage /= 1024 // apply kilobyte divider
-        } else if usageString.last == "M" && usageString.count == 5 {
-            usage /= 1024
-            usage *= 1000
-        }
+        let usage = ProcessReader.parseTopMemory(usageString)
         
         var name: String = command
         if let app = NSRunningApplication(processIdentifier: pid_t(pid)), let n = app.localizedName {
@@ -299,6 +307,168 @@ public class ProcessReader: Reader<[TopProcess]> {
             name = "Docker"
         }
         
-        return TopProcess(pid: pid, name: name, usage: usage * Double(1000 * 1000))
+        return TopProcess(pid: pid, name: name, usage: usage)
+    }
+
+    static func parseTopMemory(_ raw: Substring) -> Double {
+        let rawString = String(raw)
+        var usage = Double(rawString.filter("01234567890.".contains)) ?? 0
+        if rawString.last == "G" {
+            usage *= 1024 * 1000 * 1000
+        } else if rawString.last == "K" {
+            usage = usage / 1024 * 1000 * 1000
+        } else if rawString.last == "M" && rawString.count == 5 {
+            usage = usage / 1024 * 1000 * 1000 * 1000
+        } else {
+            usage *= 1000 * 1000
+        }
+        return usage
+    }
+}
+
+internal class SwapProcessReader: Reader<[SwapProcess]> {
+    private let title: String = "RAM"
+
+    private var numberOfProcesses: Int {
+        get { Store.shared.int(key: "\(self.title)_processes", defaultValue: 8) }
+    }
+
+    private var combinedProcesses: Bool {
+        get { Store.shared.bool(key: "\(self.title)_combinedProcesses", defaultValue: false) }
+    }
+
+    public override func setup() {
+        self.preview = true
+        self.setInterval(Store.shared.int(key: "\(self.title)_updateTopInterval", defaultValue: 1))
+    }
+
+    public override func read() {
+        if self.numberOfProcesses == 0 {
+            return
+        }
+
+        let task = Process()
+        task.launchPath = "/usr/bin/top"
+        var arguments = [
+            "-l", "1",
+            "-o", "compressed",
+            "-stats", "pid,command,mem,compressed,pageins"
+        ]
+        if !self.combinedProcesses {
+            arguments.insert(contentsOf: ["-n", "\(self.numberOfProcesses)"], at: 4)
+        }
+        task.arguments = arguments
+
+        let outputPipe = Pipe()
+        let errorPipe = Pipe()
+
+        defer {
+            outputPipe.fileHandleForReading.closeFile()
+            errorPipe.fileHandleForReading.closeFile()
+        }
+
+        task.standardOutput = outputPipe
+        task.standardError = errorPipe
+
+        do {
+            try task.run()
+        } catch let err {
+            error("top(): \(err.localizedDescription)", log: self.log)
+            return
+        }
+
+        let outputData = outputPipe.fileHandleForReading.readDataToEndOfFile()
+        let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
+        let output = String(data: outputData, encoding: .utf8)
+        let errorOutput = String(data: errorData, encoding: .utf8)
+        if let errorOutput, !errorOutput.isEmpty {
+            error("top(): \(errorOutput)", log: self.log)
+        }
+        guard let output, !output.isEmpty else { return }
+
+        var processes: [SwapProcess] = []
+        output.enumerateLines { (line, _) in
+            if let process = SwapProcessReader.parseProcess(line) {
+                processes.append(process)
+            }
+        }
+
+        if !self.combinedProcesses {
+            self.callback(processes.filter { $0.compressed > 0 })
+            return
+        }
+
+        var processGroups: [String: [SwapProcess]] = [:]
+        for process in processes {
+            let responsiblePid = ProcessReader.getResponsiblePid(process.pid)
+            let groupKey = "\(responsiblePid)"
+
+            if processGroups[groupKey] != nil {
+                processGroups[groupKey]!.append(process)
+            } else {
+                processGroups[groupKey] = [process]
+            }
+        }
+
+        var result: [SwapProcess] = []
+        for (_, processes) in processGroups {
+            let firstProcess = processes.first!
+            let responsiblePid = ProcessReader.getResponsiblePid(firstProcess.pid)
+            let name: String
+
+            if let app = NSRunningApplication(processIdentifier: pid_t(responsiblePid)),
+               let appName = app.localizedName {
+                name = appName
+            } else {
+                name = firstProcess.name
+            }
+
+            result.append(SwapProcess(
+                pid: responsiblePid,
+                name: name,
+                memory: processes.reduce(0) { $0 + $1.memory },
+                compressed: processes.reduce(0) { $0 + $1.compressed },
+                pageins: processes.reduce(0) { $0 + $1.pageins }
+            ))
+        }
+
+        result.sort { $0.compressed > $1.compressed }
+        self.callback(Array(result.filter { $0.compressed > 0 }.prefix(self.numberOfProcesses)))
+    }
+
+    static func parseProcess(_ raw: String) -> SwapProcess? {
+        var str = raw.trimmingCharacters(in: .whitespaces)
+        let pidString = str.find(pattern: "^\\d+\\**")
+        guard !pidString.isEmpty, let range = str.range(of: pidString) else {
+            return nil
+        }
+
+        str = str.replacingCharacters(in: range, with: "")
+        var arr = str.split(separator: " ")
+        guard arr.count >= 4 else { return nil }
+
+        let pageinsString = arr.removeLast()
+        let compressedString = arr.removeLast()
+        let memoryString = arr.removeLast()
+        let command = arr.joined(separator: " ").trimmingCharacters(in: .whitespaces)
+        let pid = Int(pidString.filter("01234567890".contains)) ?? 0
+        let pageins = Int(pageinsString.filter("01234567890".contains)) ?? 0
+        var name = command
+
+        if let app = NSRunningApplication(processIdentifier: pid_t(pid)), let n = app.localizedName {
+            name = n
+        }
+
+        if command.contains("com.apple.Virtua") && name.contains("Docker") {
+            name = "Docker"
+        }
+
+        return SwapProcess(
+            pid: pid,
+            name: name,
+            memory: ProcessReader.parseTopMemory(memoryString),
+            compressed: ProcessReader.parseTopMemory(compressedString),
+            pageins: pageins
+        )
     }
 }

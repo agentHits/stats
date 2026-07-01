@@ -80,6 +80,29 @@ class RAM: XCTestCase {
         XCTAssertEqual(process.usage, 658 * Double(1000 * 1000))
     }
 
+    func testSwapProcessReader_parseProcess() throws {
+        let process = try XCTUnwrap(SwapProcessReader.parseProcess("38574  com.docker.backe 2789M 1785M 120116"))
+        XCTAssertEqual(process.pid, 38574)
+        XCTAssertEqual(process.name, "Docker")
+        XCTAssertEqual(process.memory, 2789.0 / 1024 * 1000 * 1000 * 1000)
+        XCTAssertEqual(process.compressed, 1785.0 / 1024 * 1000 * 1000 * 1000)
+        XCTAssertEqual(process.pageins, 120116)
+
+        let spacedName = try XCTUnwrap(SwapProcessReader.parseProcess("39628  GitHub Desktop H 1204M 880M  357121"))
+        XCTAssertEqual(spacedName.pid, 39628)
+        XCTAssertEqual(spacedName.name, "GitHub Desktop H")
+        XCTAssertEqual(spacedName.memory, 1204.0 / 1024 * 1000 * 1000 * 1000)
+        XCTAssertEqual(spacedName.compressed, 880 * Double(1000 * 1000))
+        XCTAssertEqual(spacedName.pageins, 357121)
+
+        let kilobytes = try XCTUnwrap(SwapProcessReader.parseProcess("2002   fairplayd      3792K 2192K 495457"))
+        XCTAssertEqual(kilobytes.pid, 2002)
+        XCTAssertEqual(kilobytes.name, "fairplayd")
+        XCTAssertEqual(kilobytes.memory, 3792.0 / 1024 * 1000 * 1000)
+        XCTAssertEqual(kilobytes.compressed, 2192.0 / 1024 * 1000 * 1000)
+        XCTAssertEqual(kilobytes.pageins, 495457)
+    }
+
     func testMemoryBreakdownUsesAppWiredAndCompressedMemory() throws {
         var stats = vm_statistics64()
         stats.internal_page_count = 100
