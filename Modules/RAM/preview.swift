@@ -22,6 +22,7 @@ internal class Preview: PreviewWrapper {
     private var swapLineChart: LineChartView? = nil
     private var swapContainer: NSStackView? = nil
     private var swapHeightConstraint: NSLayoutConstraint? = nil
+    private var swapInfo: NSView? = nil
     private var swapProcesses: ProcessesView? = nil
     private var swapProcessesInitialized: Bool = false
     private let processHeight: CGFloat = 22
@@ -49,11 +50,17 @@ internal class Preview: PreviewWrapper {
     private var swapProcessCount: Int {
         Store.shared.int(key: "\(self.module.stringValue)_processes", defaultValue: 8)
     }
+    private var swapInfoHeight: CGFloat {
+        self.swapProcessCount == 0 ? 0 : 58
+    }
     private var swapProcessesHeight: CGFloat {
-        self.swapProcessCount == 0 ? 0 : (self.processHeight * CGFloat(self.swapProcessCount + 1)) + Constants.Settings.margin
+        self.swapProcessCount == 0 ? 0 : self.processHeight * CGFloat(self.swapProcessCount + 1)
+    }
+    private var swapSpacingHeight: CGFloat {
+        self.swapProcessCount == 0 ? 0 : Constants.Settings.margin * 2
     }
     private var swapViewHeight: CGFloat {
-        90 + self.swapProcessesHeight
+        90 + self.swapInfoHeight + self.swapProcessesHeight + self.swapSpacingHeight
     }
     
     public init(_ module: ModuleType) {
@@ -116,9 +123,14 @@ internal class Preview: PreviewWrapper {
             
             let totalStr = Units(bytes: Int64(ProcessInfo.processInfo.physicalMemory)).getReadableMemory(style: .memory)
             let totalField = LabelField("\(localizedString("Total")): \(totalStr)")
+            let buildBadge = LabelField(localizedString("AgentHits build"))
+            buildBadge.font = NSFont.systemFont(ofSize: 11, weight: .medium)
+            buildBadge.textColor = .systemOrange
+            buildBadge.toolTip = localizedString("Local personal AgentHits build, not official Stats.")
             
             let title = NSStackView()
             title.addArrangedSubview(titleField)
+            title.addArrangedSubview(buildBadge)
             title.addArrangedSubview(NSView())
             title.addArrangedSubview(totalField)
             
@@ -264,12 +276,42 @@ internal class Preview: PreviewWrapper {
         view.addArrangedSubview(chartView)
 
         if self.swapProcessCount > 0 {
+            let info = self.makeSwapInfoView()
+            self.swapInfo = info
+            view.addArrangedSubview(info)
+
             let processes = self.makeSwapProcessesView()
             self.swapProcesses = processes
             view.addArrangedSubview(processes)
         }
         
         return view
+    }
+
+    private func makeSwapInfoView() -> NSView {
+        let view = NSStackView()
+        view.orientation = .vertical
+        view.distribution = .fillEqually
+        view.spacing = 2
+        view.heightAnchor.constraint(equalToConstant: self.swapInfoHeight).isActive = true
+
+        let source = self.swapInfoLabel(localizedString("Processes below do not show exact swap by PID: macOS does not expose those bytes directly."))
+        let diagnostic = self.swapInfoLabel(localizedString("Diagnostics: high Compressed/Page-ins + growing Swap - close or restart the process."))
+
+        view.addArrangedSubview(source)
+        view.addArrangedSubview(diagnostic)
+
+        return view
+    }
+
+    private func swapInfoLabel(_ value: String) -> NSTextField {
+        let field = NSTextField(wrappingLabelWithString: value)
+        field.font = NSFont.systemFont(ofSize: 10, weight: .regular)
+        field.textColor = .secondaryLabelColor
+        field.maximumNumberOfLines = 2
+        field.lineBreakMode = .byWordWrapping
+        field.toolTip = value
+        return field
     }
 
     private func makeSwapProcessesView() -> ProcessesView {
@@ -292,6 +334,12 @@ internal class Preview: PreviewWrapper {
     }
 
     private func rebuildSwapProcessesView() {
+        if let info = self.swapInfo {
+            self.swapContainer?.removeArrangedSubview(info)
+            info.removeFromSuperview()
+            self.swapInfo = nil
+        }
+
         if let processes = self.swapProcesses {
             self.swapContainer?.removeArrangedSubview(processes)
             processes.removeFromSuperview()
@@ -299,6 +347,10 @@ internal class Preview: PreviewWrapper {
         }
 
         if self.swapProcessCount > 0 {
+            let info = self.makeSwapInfoView()
+            self.swapInfo = info
+            self.swapContainer?.addArrangedSubview(info)
+
             let processes = self.makeSwapProcessesView()
             self.swapProcesses = processes
             self.swapContainer?.addArrangedSubview(processes)

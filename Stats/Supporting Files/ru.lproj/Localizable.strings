@@ -458,6 +458,10 @@
 "Sync with NTP server" = "Синхронизация с сервером NTP";
 "Previous month" = "Previous month";
 "Next month" = "Next month";
+"AgentHits build" = "AgentHits build";
+"Local personal AgentHits build, not official Stats." = "Локальная персональная сборка AgentHits, не официальный Stats.";
+"Processes below do not show exact swap by PID: macOS does not expose those bytes directly." = "Процессы ниже не показывают точный swap по PID: macOS не отдает такие байты напрямую.";
+"Diagnostics: high Compressed/Page-ins + growing Swap - close or restart the process." = "Диагностика: высокий Compressed/Page-ins + рост Swap - закройте или перезапустите процесс.";
 
 // Colors
 "Based on utilization" = "На основе использования";

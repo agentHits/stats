@@ -81,9 +81,9 @@ class RAM: XCTestCase {
     }
 
     func testSwapProcessReader_parseProcess() throws {
-        let process = try XCTUnwrap(SwapProcessReader.parseProcess("38574  com.docker.backe 2789M 1785M 120116"))
-        XCTAssertEqual(process.pid, 38574)
-        XCTAssertEqual(process.name, "Docker")
+        let process = try XCTUnwrap(SwapProcessReader.parseProcess("999999  com.docker.backe 2789M 1785M 120116"))
+        XCTAssertEqual(process.pid, 999999)
+        XCTAssertEqual(process.name, "com.docker.backe")
         XCTAssertEqual(process.memory, 2789.0 / 1024 * 1000 * 1000 * 1000)
         XCTAssertEqual(process.compressed, 1785.0 / 1024 * 1000 * 1000 * 1000)
         XCTAssertEqual(process.pageins, 120116)

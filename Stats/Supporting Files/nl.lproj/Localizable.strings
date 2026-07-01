@@ -458,6 +458,10 @@
 "Sync with NTP server" = "Synchroniseer met NTP-server"; // gemma4:31b
 "Previous month" = "Vorige maand"; // gemma4:31b
 "Next month" = "Volgende maand"; // gemma4:31b
+"AgentHits build" = "AgentHits build";
+"Local personal AgentHits build, not official Stats." = "Local personal AgentHits build, not official Stats.";
+"Processes below do not show exact swap by PID: macOS does not expose those bytes directly." = "Processes below do not show exact swap by PID: macOS does not expose those bytes directly.";
+"Diagnostics: high Compressed/Page-ins + growing Swap - close or restart the process." = "Diagnostics: high Compressed/Page-ins + growing Swap - close or restart the process.";
 "Energy" = "Energie"; // translategemma:4b
 "Show unknown sensors" = "Toon onbekende sensoren"; // translategemma:4b
 "Based on utilization" = "Op basis van gebruik"; // gemma4:31b

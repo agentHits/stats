@@ -458,6 +458,10 @@
 "Sync with NTP server" = "与 NTP 服务器同步"; // translategemma:4b
 "Previous month" = "上个月"; // gemma4:31b
 "Next month" = "下个月"; // gemma4:31b
+"AgentHits build" = "AgentHits build";
+"Local personal AgentHits build, not official Stats." = "Local personal AgentHits build, not official Stats.";
+"Processes below do not show exact swap by PID: macOS does not expose those bytes directly." = "Processes below do not show exact swap by PID: macOS does not expose those bytes directly.";
+"Diagnostics: high Compressed/Page-ins + growing Swap - close or restart the process." = "Diagnostics: high Compressed/Page-ins + growing Swap - close or restart the process.";
 
 // Colors
 "Based on utilization" = "基于利用率";
