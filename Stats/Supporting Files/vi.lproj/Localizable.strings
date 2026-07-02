@@ -337,6 +337,21 @@
 "SMART data" = "Dữ liệu SMART";
 "Power cycles" = "Số chu kỳ sạc"; // gemma4:31b
 "Power on hours" = "Số giờ bật nguồn"; // gemma4:31b
+"Activity by period" = "Activity by period";
+"Period" = "Period";
+"Sort by" = "Sort by";
+"1 hour" = "1 hour";
+"3 hours" = "3 hours";
+"6 hours" = "6 hours";
+"12 hours" = "12 hours";
+"24 hours" = "24 hours";
+"3 days" = "3 days";
+"7 days" = "7 days";
+"Peak read" = "Peak read";
+"Peak write" = "Peak write";
+"No activity data yet" = "No activity data yet";
+"Disk activity processes" = "Disk activity processes";
+"Share" = "Share";
 
 // Sensors
 "Celsius" = "Độ C";

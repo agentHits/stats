@@ -337,6 +337,21 @@
 "SMART data" = "SMART данные";
 "Power cycles" = "Количество циклов";
 "Power on hours" = "Часы работы";
+"Activity by period" = "Активность за период";
+"Period" = "Период";
+"Sort by" = "Сортировка";
+"1 hour" = "1 час";
+"3 hours" = "3 часа";
+"6 hours" = "6 часов";
+"12 hours" = "12 часов";
+"24 hours" = "24 часа";
+"3 days" = "3 дня";
+"7 days" = "7 дней";
+"Peak read" = "Пик чтения";
+"Peak write" = "Пик записи";
+"No activity data yet" = "Пока нет данных активности";
+"Disk activity processes" = "Процессы с активностью диска";
+"Share" = "Доля";
 
 // Sensors
 "Celsius" = "Цельсия";

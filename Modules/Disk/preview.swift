@@ -13,12 +13,15 @@ import Cocoa
 import Kit
 
 internal class Preview: PreviewWrapper {
-    private var main: disk_s? = nil
+    private var mainID: String? = nil
     
     private var circle: PieChartView? = nil
     private var bar: BarChartView? = nil
     private var chart: NetworkChartView? = nil
     
+    private var mainNameField: NSButton? = nil
+    private var mainFileSystemField: NSTextField? = nil
+    private var mainSizeField: NSTextField? = nil
     private var usedField: NSTextField? = nil
     private var freeField: NSTextField? = nil
     
@@ -48,6 +51,9 @@ internal class Preview: PreviewWrapper {
     private var speedUnit: String {
         networkSpeedUnit(from: Store.shared.string(key: "\(self.module.stringValue)_speedUnit", defaultValue: NetworkSpeedUnitAuto)).key
     }
+    private var processLimit: Int {
+        min(6, max(0, Store.shared.int(key: "\(self.module.stringValue)_processes", defaultValue: 5)))
+    }
     
     private var uri: URL? = nil
     private let finder: URL?
@@ -65,12 +71,28 @@ internal class Preview: PreviewWrapper {
     private var powerCyclesValueField: ValueField?
     private var powerOnHoursValueField: ValueField?
     
+    private var activityPeriod: DiskActivityPeriod = .hour1
+    private var activitySort: DiskActivityProcessSort = .total
+    private var periodReadValueField: ValueField?
+    private var periodWriteValueField: ValueField?
+    private var periodTotalValueField: ValueField?
+    private var periodPeakReadValueField: ValueField?
+    private var periodPeakWriteValueField: ValueField?
+    private var periodDataStateField: NSTextField?
+    private var periodProcessTable: DiskActivityProcessTable?
+
     public init(_ module: ModuleType) {
         self.finder = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.Finder")
         
         super.init(type: module)
         
         self.loadColors()
+        self.activityPeriod = DiskActivityPeriod(
+            rawValue: Store.shared.string(key: "\(self.module.stringValue)_activityPeriod", defaultValue: self.activityPeriod.rawValue)
+        ) ?? self.activityPeriod
+        self.activitySort = DiskActivityProcessSort(
+            rawValue: Store.shared.string(key: "\(self.module.stringValue)_activitySort", defaultValue: self.activitySort.rawValue)
+        ) ?? self.activitySort
         
         self.addArrangedSubview(PreferencesSection([self.usageView()]))
         
@@ -89,6 +111,8 @@ internal class Preview: PreviewWrapper {
         splitView.addArrangedSubview(PreferencesSection(title: localizedString("SMART"), [self.smartView()]))
         
         self.addArrangedSubview(splitView)
+        self.addArrangedSubview(PreferencesSection(title: localizedString("Activity by period"), [self.periodActivityView()]))
+        self.addArrangedSubview(NSView())
     }
     
     required init?(coder: NSCoder) {
@@ -139,7 +163,7 @@ internal class Preview: PreviewWrapper {
                 if let size = disk.size {
                     sizeValue = ByteCountFormatter.string(fromByteCount: size, countStyle: .file)
                 }
-                self.main = disk
+                self.mainID = disk.id
             }
             
             let title: NSView = {
@@ -156,9 +180,11 @@ internal class Preview: PreviewWrapper {
                 nameField.toolTip = nameValue
                 nameField.title = nameValue
                 nameField.cell?.truncatesLastVisibleLine = true
+                self.mainNameField = nameField
                 
                 let fileSystemField = LabelField(fileSystemValue)
                 fileSystemField.textColor = .tertiaryLabelColor
+                self.mainFileSystemField = fileSystemField
                 
                 let activity: NSStackView = NSStackView()
                 activity.distribution = .fill
@@ -202,11 +228,12 @@ internal class Preview: PreviewWrapper {
             self.usedField = previewRow(levels, space: false, color: NSColor.systemBlue, title: "\(localizedString("Used")):", value: "")
             self.freeField = previewRow(levels, space: false, color: NSColor.lightGray, title: "\(localizedString("Free")):", value: "")
             
-            let fileSystemField = LabelField(sizeValue)
-            fileSystemField.textColor = .tertiaryLabelColor
+            let sizeField = LabelField(sizeValue)
+            sizeField.textColor = .tertiaryLabelColor
+            self.mainSizeField = sizeField
             
             levels.addArrangedSubview(NSView())
-            levels.addArrangedSubview(fileSystemField)
+            levels.addArrangedSubview(sizeField)
             
             view.addArrangedSubview(title)
             view.addArrangedSubview(bar)
@@ -268,35 +295,101 @@ internal class Preview: PreviewWrapper {
         return view
     }
     
+    private func periodActivityView() -> NSView {
+        let view = NSStackView()
+        view.orientation = .vertical
+        view.distribution = .fill
+        view.spacing = Constants.Settings.margin
+        view.heightAnchor.constraint(equalToConstant: 238).isActive = true
+        view.edgeInsets = NSEdgeInsets(
+            top: Constants.Settings.margin,
+            left: Constants.Settings.margin,
+            bottom: Constants.Settings.margin,
+            right: Constants.Settings.margin
+        )
+
+        let controls = NSStackView()
+        controls.orientation = .horizontal
+        controls.alignment = .centerY
+        controls.spacing = Constants.Settings.margin
+
+        let periodLabel = LabelField("\(localizedString("Period")):")
+        periodLabel.font = .systemFont(ofSize: 11, weight: .medium)
+        let periodSelect = selectView(
+            action: #selector(self.changeActivityPeriod),
+            items: DiskActivityPeriod.menuItems,
+            selected: self.activityPeriod.rawValue
+        )
+        periodSelect.widthAnchor.constraint(equalToConstant: 105).isActive = true
+
+        let sortLabel = LabelField("\(localizedString("Sort by")):")
+        sortLabel.font = .systemFont(ofSize: 11, weight: .medium)
+        let sortSelect = selectView(
+            action: #selector(self.changeActivitySort),
+            items: DiskActivityProcessSort.menuItems,
+            selected: self.activitySort.rawValue
+        )
+        sortSelect.widthAnchor.constraint(equalToConstant: 105).isActive = true
+
+        self.periodDataStateField = LabelField("")
+        self.periodDataStateField?.textColor = .tertiaryLabelColor
+        self.periodDataStateField?.font = .systemFont(ofSize: 11, weight: .regular)
+
+        controls.addArrangedSubview(periodLabel)
+        controls.addArrangedSubview(periodSelect)
+        controls.addArrangedSubview(sortLabel)
+        controls.addArrangedSubview(sortSelect)
+        controls.addArrangedSubview(NSView())
+        if let field = self.periodDataStateField {
+            controls.addArrangedSubview(field)
+        }
+
+        let summary = NSStackView()
+        summary.orientation = .horizontal
+        summary.distribution = .fillEqually
+        summary.spacing = Constants.Settings.margin
+
+        let totals = NSStackView()
+        totals.orientation = .vertical
+        totals.spacing = 2
+        self.periodReadValueField = previewRow(totals, color: self.readColor, title: "\(localizedString("Read")):", value: "0 KB")
+        self.periodWriteValueField = previewRow(totals, color: self.writeColor, title: "\(localizedString("Write")):", value: "0 KB")
+        self.periodTotalValueField = previewRow(totals, title: "\(localizedString("Total")):", value: "0 KB")
+
+        let peaks = NSStackView()
+        peaks.orientation = .vertical
+        peaks.spacing = 2
+        self.periodPeakReadValueField = previewRow(peaks, color: self.readColor, title: "\(localizedString("Peak read")):", value: "0 KB/s")
+        self.periodPeakWriteValueField = previewRow(peaks, color: self.writeColor, title: "\(localizedString("Peak write")):", value: "0 KB/s")
+        peaks.addArrangedSubview(NSView())
+
+        summary.addArrangedSubview(totals)
+        summary.addArrangedSubview(peaks)
+
+        let processTitle = LabelField(localizedString("Disk activity processes"))
+        processTitle.font = .systemFont(ofSize: 11, weight: .semibold)
+        let table = DiskActivityProcessTable()
+        self.periodProcessTable = table
+
+        view.addArrangedSubview(controls)
+        view.addArrangedSubview(summary)
+        view.addArrangedSubview(processTitle)
+        view.addArrangedSubview(table)
+
+        self.refreshPeriodActivity()
+
+        return view
+    }
+
     internal func capacityCallback(_ value: Disks) {
         DispatchQueue.main.async(execute: {
             if (self.window?.isVisible ?? false) || !self.initialized {
-                if let main = self.main, let update = value.first(where: { $0.uuid == main.id }) {
-                    let free = update.free
-                    let used = update.size - free
-                    self.usedField?.stringValue = DiskSize(used).getReadableMemory()
-                    self.freeField?.stringValue = DiskSize(free).getReadableMemory()
-                    
-                    self.circle?.setValue(update.percentage)
-                    self.bar?.setValue(ColorValue(update.percentage, color: update.percentage.usageColor()))
-                    
-                    self.uri = update.path
-                    
-                    if let smart = update.smart {
-                        self.smartTotalReadValueField?.toolTip = "\(smart.totalRead / (512 * 1000))"
-                        self.smartTotalWrittenValueField?.toolTip = "\(smart.totalWritten / (512 * 1000))"
-                        self.smartTotalReadValueField?.stringValue = Units(bytes: smart.totalRead).getReadableMemory()
-                        self.smartTotalWrittenValueField?.stringValue = Units(bytes: smart.totalWritten).getReadableMemory()
-                        
-                        self.temperatureValueField?.stringValue = "\(temperature(Double(smart.temperature)))"
-                        self.healthValueField?.stringValue = "\(smart.life)%"
-                        
-                        self.powerCyclesValueField?.stringValue = "\(smart.powerCycles)"
-                        self.powerOnHoursValueField?.stringValue = "\(smart.powerOnHours)"
-                    }
+                if let update = self.selectedDrive(from: value) {
+                    self.mainID = update.uuid
+                    self.updateMainDisk(update)
                 }
                 
-                let drives = value.filter(where: { $0.uuid != self.main?.id })
+                let drives = value.filter(where: { $0.uuid != self.mainID })
                 
                 if drives.isEmpty {
                     self.allDisks?.isHidden = true
@@ -378,7 +471,7 @@ internal class Preview: PreviewWrapper {
     }
     
     internal func activityCallback(_ value: Disks) {
-        guard let main = self.main, let update = value.first(where: { $0.uuid == main.id }) else {
+        guard let mainID = self.mainID, let update = value.first(where: { $0.uuid == mainID }) else {
             return
         }
         let read = update.activity.read
@@ -400,6 +493,110 @@ internal class Preview: PreviewWrapper {
         self.totalReadValueField?.toolTip = "\(stats.readBytes / (512 * 1000))"
         self.totalWrittenValueField?.stringValue = Units(bytes: stats.writeBytes).getReadableMemory()
         self.totalWrittenValueField?.toolTip = "\(stats.writeBytes / (512 * 1000))"
+
+        self.refreshPeriodActivity()
+    }
+
+    internal func processCallback() {
+        DispatchQueue.main.async(execute: {
+            self.refreshPeriodActivity()
+        })
+    }
+
+    private func refreshPeriodActivity() {
+        let summary = DiskActivityHistoryStore.shared.summary(
+            diskID: self.mainID,
+            period: self.activityPeriod,
+            sort: self.activitySort,
+            limit: self.processLimit
+        )
+
+        self.periodReadValueField?.stringValue = Units(bytes: summary.read).getReadableMemory()
+        self.periodWriteValueField?.stringValue = Units(bytes: summary.write).getReadableMemory()
+        self.periodTotalValueField?.stringValue = Units(bytes: summary.total).getReadableMemory()
+        self.periodPeakReadValueField?.stringValue = Units(bytes: summary.peakRead).getReadableSpeed(base: self.base, unit: self.speedUnit)
+        self.periodPeakWriteValueField?.stringValue = Units(bytes: summary.peakWrite).getReadableSpeed(base: self.base, unit: self.speedUnit)
+        self.periodDataStateField?.stringValue = summary.hasData ? "" : localizedString("No activity data yet")
+        self.periodProcessTable?.setRows(summary.processes)
+    }
+
+    @objc private func changeActivityPeriod(_ sender: Any) {
+        guard let key = self.selectedKey(from: sender), let period = DiskActivityPeriod(rawValue: key) else { return }
+        self.activityPeriod = period
+        Store.shared.set(key: "\(self.module.stringValue)_activityPeriod", value: period.rawValue)
+        self.refreshPeriodActivity()
+    }
+
+    @objc private func changeActivitySort(_ sender: Any) {
+        guard let key = self.selectedKey(from: sender), let sort = DiskActivityProcessSort(rawValue: key) else { return }
+        self.activitySort = sort
+        Store.shared.set(key: "\(self.module.stringValue)_activitySort", value: sort.rawValue)
+        self.refreshPeriodActivity()
+    }
+
+    private func selectedKey(from sender: Any) -> String? {
+        if let item = sender as? NSMenuItem {
+            return item.representedObject as? String
+        }
+        if let button = sender as? NSPopUpButton {
+            return button.selectedItem?.representedObject as? String
+        }
+        return nil
+    }
+
+    private func selectedDrive(from disks: Disks) -> drive? {
+        let selectedName = Store.shared.string(key: "\(self.module.stringValue)_disk", defaultValue: "")
+        if !selectedName.isEmpty, let selected = disks.first(where: { $0.mediaName == selectedName }) {
+            return selected
+        }
+        return disks.first(where: { $0.root }) ?? disks.array.first
+    }
+
+    private func updateMainDisk(_ disk: drive) {
+        let name = disk.mediaName.isEmpty ? localizedString("Unknown") : disk.mediaName
+        if self.mainNameField?.title != name {
+            self.mainNameField?.title = name
+            self.mainNameField?.toolTip = name
+        }
+
+        let fileSystem = disk.fileSystem.isEmpty ? localizedString("Unknown") : disk.fileSystem.uppercased()
+        if self.mainFileSystemField?.stringValue != fileSystem {
+            self.mainFileSystemField?.stringValue = fileSystem
+        }
+
+        let size = ByteCountFormatter.string(fromByteCount: disk.size, countStyle: .file)
+        if self.mainSizeField?.stringValue != size {
+            self.mainSizeField?.stringValue = size
+        }
+
+        let free = disk.free
+        let used = disk.size - free
+        self.usedField?.stringValue = DiskSize(used).getReadableMemory()
+        self.freeField?.stringValue = DiskSize(free).getReadableMemory()
+
+        self.circle?.setValue(disk.percentage)
+        self.bar?.setValue(ColorValue(disk.percentage, color: disk.percentage.usageColor()))
+        self.uri = disk.path
+
+        if let smart = disk.smart {
+            self.smartTotalReadValueField?.toolTip = "\(smart.totalRead / (512 * 1000))"
+            self.smartTotalWrittenValueField?.toolTip = "\(smart.totalWritten / (512 * 1000))"
+            self.smartTotalReadValueField?.stringValue = Units(bytes: smart.totalRead).getReadableMemory()
+            self.smartTotalWrittenValueField?.stringValue = Units(bytes: smart.totalWritten).getReadableMemory()
+            self.temperatureValueField?.stringValue = "\(temperature(Double(smart.temperature)))"
+            self.healthValueField?.stringValue = "\(smart.life)%"
+            self.powerCyclesValueField?.stringValue = "\(smart.powerCycles)"
+            self.powerOnHoursValueField?.stringValue = "\(smart.powerOnHours)"
+        } else {
+            self.smartTotalReadValueField?.toolTip = nil
+            self.smartTotalWrittenValueField?.toolTip = nil
+            self.smartTotalReadValueField?.stringValue = "0 KB"
+            self.smartTotalWrittenValueField?.stringValue = "0 KB"
+            self.temperatureValueField?.stringValue = "\(temperature(0))"
+            self.healthValueField?.stringValue = "0%"
+            self.powerCyclesValueField?.stringValue = "0"
+            self.powerOnHoursValueField?.stringValue = "0"
+        }
     }
     
     @objc private func openDisk() {
@@ -500,6 +697,103 @@ internal class DiskRow {
         } catch let err {
             error("failed to eject \(uri.path): \(err.localizedDescription)")
         }
+    }
+}
+
+private class DiskActivityProcessTable: NSStackView {
+    private let maxRows: Int = 6
+    private var rowViews: [DiskActivityProcessRow] = []
+
+    init() {
+        super.init(frame: .zero)
+        self.orientation = .vertical
+        self.spacing = 2
+        self.translatesAutoresizingMaskIntoConstraints = false
+
+        self.addArrangedSubview(DiskActivityProcessRow.header())
+        for _ in 0..<self.maxRows {
+            let row = DiskActivityProcessRow()
+            self.rowViews.append(row)
+            self.addArrangedSubview(row)
+        }
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func setRows(_ rows: [DiskActivityProcessSummary]) {
+        for (idx, view) in self.rowViews.enumerated() {
+            if idx < rows.count {
+                view.update(rows[idx])
+            } else {
+                view.reset()
+            }
+        }
+    }
+}
+
+private class DiskActivityProcessRow: NSGridView {
+    private let nameField = LabelField("-")
+    private let readField = LabelField("-")
+    private let writeField = LabelField("-")
+    private let totalField = LabelField("-")
+    private let shareField = LabelField("-")
+
+    init(header: Bool = false) {
+        super.init(frame: .zero)
+        self.rowSpacing = 0
+        self.columnSpacing = Constants.Settings.margin
+        self.yPlacement = .center
+
+        [self.nameField, self.readField, self.writeField, self.totalField, self.shareField].forEach { field in
+            field.font = .systemFont(ofSize: 10, weight: header ? .semibold : .regular)
+            field.textColor = header ? .secondaryLabelColor : .labelColor
+            field.lineBreakMode = .byTruncatingTail
+        }
+        self.readField.alignment = .right
+        self.writeField.alignment = .right
+        self.totalField.alignment = .right
+        self.shareField.alignment = .right
+
+        self.addRow(with: [self.nameField, self.readField, self.writeField, self.totalField, self.shareField])
+        self.column(at: 0).xPlacement = .leading
+        self.column(at: 1).xPlacement = .trailing
+        self.column(at: 2).xPlacement = .trailing
+        self.column(at: 3).xPlacement = .trailing
+        self.column(at: 4).xPlacement = .trailing
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    static func header() -> DiskActivityProcessRow {
+        let row = DiskActivityProcessRow(header: true)
+        row.nameField.stringValue = localizedString("Process")
+        row.readField.stringValue = localizedString("Read")
+        row.writeField.stringValue = localizedString("Write")
+        row.totalField.stringValue = localizedString("Total")
+        row.shareField.stringValue = localizedString("Share")
+        return row
+    }
+
+    func update(_ row: DiskActivityProcessSummary) {
+        self.nameField.stringValue = row.name
+        self.nameField.toolTip = row.name
+        self.readField.stringValue = Units(bytes: row.read).getReadableMemory()
+        self.writeField.stringValue = Units(bytes: row.write).getReadableMemory()
+        self.totalField.stringValue = Units(bytes: row.total).getReadableMemory()
+        self.shareField.stringValue = String(format: "%.0f%%", row.share * 100)
+        self.toolTip = "pid: \(row.pid)"
+    }
+
+    func reset() {
+        [self.nameField, self.readField, self.writeField, self.totalField, self.shareField].forEach {
+            $0.stringValue = "-"
+            $0.toolTip = nil
+        }
+        self.toolTip = nil
     }
 }
 

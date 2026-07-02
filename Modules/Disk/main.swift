@@ -184,6 +184,7 @@ public struct Disk_process: Process_p, Codable {
     
     public var pid: Int
     public var name: String
+    public var bundleIdentifier: String?
     public var icon: NSImage {
         if let app = NSRunningApplication(processIdentifier: pid_t(self.pid)) {
             return app.icon ?? Constants.defaultProcessIcon
@@ -204,7 +205,331 @@ public struct Disk_process: Process_p, Codable {
             if let name = app.localizedName {
                 self.name = name
             }
+            self.bundleIdentifier = app.bundleIdentifier
         }
+    }
+}
+
+public enum DiskActivityPeriod: String, CaseIterable, Codable {
+    case hour1 = "1h"
+    case hour3 = "3h"
+    case hour6 = "6h"
+    case hour12 = "12h"
+    case day1 = "24h"
+    case day3 = "3d"
+    case day7 = "7d"
+
+    public var interval: TimeInterval {
+        switch self {
+        case .hour1: return 60 * 60
+        case .hour3: return 3 * 60 * 60
+        case .hour6: return 6 * 60 * 60
+        case .hour12: return 12 * 60 * 60
+        case .day1: return 24 * 60 * 60
+        case .day3: return 3 * 24 * 60 * 60
+        case .day7: return 7 * 24 * 60 * 60
+        }
+    }
+
+    public var title: String {
+        switch self {
+        case .hour1: return "1 hour"
+        case .hour3: return "3 hours"
+        case .hour6: return "6 hours"
+        case .hour12: return "12 hours"
+        case .day1: return "24 hours"
+        case .day3: return "3 days"
+        case .day7: return "7 days"
+        }
+    }
+
+    public static var menuItems: [KeyValue_t] {
+        Self.allCases.map { KeyValue_t(key: $0.rawValue, value: $0.title) }
+    }
+}
+
+public enum DiskActivityProcessSort: String, CaseIterable, Codable {
+    case total
+    case read
+    case write
+
+    public var title: String {
+        switch self {
+        case .total: return "Total"
+        case .read: return "Read"
+        case .write: return "Write"
+        }
+    }
+
+    public static var menuItems: [KeyValue_t] {
+        Self.allCases.map { KeyValue_t(key: $0.rawValue, value: $0.title) }
+    }
+}
+
+public struct DiskActivityProcessSummary: Codable {
+    public let identity: String
+    public let pid: Int
+    public let name: String
+    public let read: Int64
+    public let write: Int64
+    public let total: Int64
+    public let share: Double
+}
+
+public struct DiskActivitySummary: Codable {
+    public let period: DiskActivityPeriod
+    public let read: Int64
+    public let write: Int64
+    public let total: Int64
+    public let peakRead: Int64
+    public let peakWrite: Int64
+    public let diskSampleCount: Int
+    public let processSampleCount: Int
+    public let processes: [DiskActivityProcessSummary]
+
+    public var hasData: Bool {
+        self.diskSampleCount != 0 || self.processSampleCount != 0
+    }
+}
+
+private struct DiskActivityDiskBucket: Codable {
+    var ts: TimeInterval
+    var diskID: String
+    var read: Int64
+    var write: Int64
+    var peakRead: Int64
+    var peakWrite: Int64
+}
+
+private struct DiskActivityProcessBucket: Codable {
+    var ts: TimeInterval
+    var identity: String
+    var pid: Int
+    var name: String
+    var read: Int64
+    var write: Int64
+}
+
+private struct DiskActivityHistorySnapshot: Codable {
+    var disk: [DiskActivityDiskBucket] = []
+    var processes: [DiskActivityProcessBucket] = []
+}
+
+public final class DiskActivityHistoryStore {
+    public static let shared = DiskActivityHistoryStore()
+
+    private let queue = DispatchQueue(label: "eu.exelban.Stats.Disk.ActivityHistory")
+    private let bucketSize: TimeInterval = 60
+    private let retention: TimeInterval = DiskActivityPeriod.day7.interval
+    private let persistenceURL: URL?
+    private var snapshot = DiskActivityHistorySnapshot()
+    private var lastSave: Date?
+
+    public convenience init() {
+        self.init(persistenceURL: DiskActivityHistoryStore.defaultPersistenceURL())
+    }
+
+    public init(persistenceURL: URL?) {
+        self.persistenceURL = persistenceURL
+        self.snapshot = Self.load(from: persistenceURL)
+    }
+
+    public func recordDisk(diskID: String, read: Int64, write: Int64, at date: Date = Date()) {
+        let safeRead = max(0, read)
+        let safeWrite = max(0, write)
+        guard safeRead != 0 || safeWrite != 0 else { return }
+
+        self.queue.sync {
+            let bucketTS = self.bucketStart(for: date)
+            if let idx = self.snapshot.disk.firstIndex(where: { $0.ts == bucketTS && $0.diskID == diskID }) {
+                self.snapshot.disk[idx].read += safeRead
+                self.snapshot.disk[idx].write += safeWrite
+                self.snapshot.disk[idx].peakRead = max(self.snapshot.disk[idx].peakRead, safeRead)
+                self.snapshot.disk[idx].peakWrite = max(self.snapshot.disk[idx].peakWrite, safeWrite)
+            } else {
+                self.snapshot.disk.append(DiskActivityDiskBucket(
+                    ts: bucketTS,
+                    diskID: diskID,
+                    read: safeRead,
+                    write: safeWrite,
+                    peakRead: safeRead,
+                    peakWrite: safeWrite
+                ))
+            }
+            self.pruneLocked(now: date)
+            self.saveIfNeededLocked(now: date)
+        }
+    }
+
+    public func recordDisk(_ disk: drive, at date: Date = Date()) {
+        self.recordDisk(diskID: disk.uuid, read: disk.activity.read, write: disk.activity.write, at: date)
+    }
+
+    public func recordProcesses(_ processes: [Disk_process], at date: Date = Date()) {
+        let active = processes.filter { $0.read > 0 || $0.write > 0 }
+        guard !active.isEmpty else { return }
+
+        self.queue.sync {
+            let bucketTS = self.bucketStart(for: date)
+            active.forEach { process in
+                let identity = self.identity(for: process)
+                let safeRead = Int64(max(0, process.read))
+                let safeWrite = Int64(max(0, process.write))
+                if let idx = self.snapshot.processes.firstIndex(where: { $0.ts == bucketTS && $0.identity == identity }) {
+                    self.snapshot.processes[idx].read += safeRead
+                    self.snapshot.processes[idx].write += safeWrite
+                    self.snapshot.processes[idx].pid = process.pid
+                    self.snapshot.processes[idx].name = process.name
+                } else {
+                    self.snapshot.processes.append(DiskActivityProcessBucket(
+                        ts: bucketTS,
+                        identity: identity,
+                        pid: process.pid,
+                        name: process.name,
+                        read: safeRead,
+                        write: safeWrite
+                    ))
+                }
+            }
+            self.pruneLocked(now: date)
+            self.saveIfNeededLocked(now: date)
+        }
+    }
+
+    public func summary(
+        diskID: String?,
+        period: DiskActivityPeriod,
+        sort: DiskActivityProcessSort = .total,
+        limit: Int = 6,
+        now: Date = Date()
+    ) -> DiskActivitySummary {
+        self.queue.sync {
+            let minTS = now.timeIntervalSince1970 - period.interval
+            let diskBuckets = self.snapshot.disk.filter { bucket in
+                bucket.ts >= minTS && (diskID == nil || bucket.diskID == diskID)
+            }
+            let processBuckets = self.snapshot.processes.filter { $0.ts >= minTS }
+
+            let read = diskBuckets.reduce(Int64(0)) { $0 + $1.read }
+            let write = diskBuckets.reduce(Int64(0)) { $0 + $1.write }
+            let peakRead = diskBuckets.map { $0.peakRead }.max() ?? 0
+            let peakWrite = diskBuckets.map { $0.peakWrite }.max() ?? 0
+
+            var grouped: [String: DiskActivityProcessBucket] = [:]
+            processBuckets.forEach { bucket in
+                if var existing = grouped[bucket.identity] {
+                    existing.read += bucket.read
+                    existing.write += bucket.write
+                    existing.pid = bucket.pid
+                    existing.name = bucket.name
+                    grouped[bucket.identity] = existing
+                } else {
+                    grouped[bucket.identity] = bucket
+                }
+            }
+
+            let processTotal = grouped.values.reduce(Int64(0)) { $0 + $1.read + $1.write }
+            let rows = grouped.values.map { bucket -> DiskActivityProcessSummary in
+                let total = bucket.read + bucket.write
+                let share = processTotal == 0 ? 0 : Double(total) / Double(processTotal)
+                return DiskActivityProcessSummary(
+                    identity: bucket.identity,
+                    pid: bucket.pid,
+                    name: bucket.name,
+                    read: bucket.read,
+                    write: bucket.write,
+                    total: total,
+                    share: share
+                )
+            }.sorted { lhs, rhs in
+                switch sort {
+                case .total:
+                    if lhs.total == rhs.total {
+                        return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
+                    }
+                    return lhs.total > rhs.total
+                case .read:
+                    if lhs.read == rhs.read { return lhs.total > rhs.total }
+                    return lhs.read > rhs.read
+                case .write:
+                    if lhs.write == rhs.write { return lhs.total > rhs.total }
+                    return lhs.write > rhs.write
+                }
+            }
+
+            return DiskActivitySummary(
+                period: period,
+                read: read,
+                write: write,
+                total: read + write,
+                peakRead: peakRead,
+                peakWrite: peakWrite,
+                diskSampleCount: diskBuckets.count,
+                processSampleCount: processBuckets.count,
+                processes: Array(rows.prefix(limit))
+            )
+        }
+    }
+
+    public func prune(now: Date = Date()) {
+        self.queue.sync {
+            self.pruneLocked(now: now)
+            self.saveLocked()
+        }
+    }
+
+    public func flush() {
+        self.queue.sync {
+            self.saveLocked()
+        }
+    }
+
+    private func identity(for process: Disk_process) -> String {
+        if let bundle = process.bundleIdentifier, !bundle.isEmpty {
+            return bundle
+        }
+        return process.name
+    }
+
+    private func bucketStart(for date: Date) -> TimeInterval {
+        floor(date.timeIntervalSince1970 / self.bucketSize) * self.bucketSize
+    }
+
+    private func pruneLocked(now: Date) {
+        let minTS = now.timeIntervalSince1970 - self.retention
+        self.snapshot.disk.removeAll { $0.ts < minTS }
+        self.snapshot.processes.removeAll { $0.ts < minTS }
+    }
+
+    private func saveIfNeededLocked(now: Date) {
+        guard let lastSave else {
+            self.saveLocked()
+            return
+        }
+        if now.timeIntervalSince(lastSave) >= 30 {
+            self.saveLocked()
+        }
+    }
+
+    private func saveLocked() {
+        guard let url = self.persistenceURL else { return }
+        guard let data = try? JSONEncoder().encode(self.snapshot) else { return }
+        try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? data.write(to: url, options: .atomic)
+        self.lastSave = Date()
+    }
+
+    private static func defaultPersistenceURL() -> URL? {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
+            .appendingPathComponent("Stats")
+            .appendingPathComponent("disk-activity-history.json")
+    }
+
+    private static func load(from url: URL?) -> DiskActivityHistorySnapshot {
+        guard let url, let data = try? Data(contentsOf: url) else {
+            return DiskActivityHistorySnapshot()
+        }
+        return (try? JSONDecoder().decode(DiskActivityHistorySnapshot.self, from: data)) ?? DiskActivityHistorySnapshot()
     }
 }
 
@@ -257,6 +582,7 @@ public class Disk: Module {
         self.processReader = ProcessReader(.disk) { [weak self] value in
             if let list = value {
                 self?.popupView.processCallback(list)
+                self?.previewView.processCallback()
             }
         }
         
@@ -280,6 +606,10 @@ public class Disk: Module {
         }
         
         self.setReaders([self.capacityReader, self.activityReader, self.processReader])
+    }
+
+    public override func willTerminate() {
+        DiskActivityHistoryStore.shared.flush()
     }
     
     private func capacityCallback(_ value: Disks) {
@@ -372,7 +702,7 @@ public class Disk: Module {
         
         self.menuBar.widgets.filter{ $0.isActive }.forEach { (w: SWidget) in
             switch w.item {
-            case let widget as SpeedWidget: 
+            case let widget as SpeedWidget:
                 widget.setValue(input: d.activity.read, output: d.activity.write)
             case let widget as NetworkChart:
                 widget.setValue(upload: Double(d.activity.write), download: Double(d.activity.read))

@@ -460,15 +460,20 @@ internal class ActivityReader: Reader<Disks> {
         if let statistics = props.object(forKey: "Statistics") as? NSDictionary {
             let readBytes = statistics.object(forKey: "Bytes (Read)") as? Int64 ?? 0
             let writeBytes = statistics.object(forKey: "Bytes (Write)") as? Int64 ?? 0
+            var readDelta: Int64 = 0
+            var writeDelta: Int64 = 0
             
             if d.activity.readBytes != 0 {
-                self.list.updateRead(idx, newValue: readBytes - d.activity.readBytes)
+                readDelta = readBytes - d.activity.readBytes
+                self.list.updateRead(idx, newValue: readDelta)
             }
             if d.activity.writeBytes != 0 {
-                self.list.updateWrite(idx, newValue: writeBytes - d.activity.writeBytes)
+                writeDelta = writeBytes - d.activity.writeBytes
+                self.list.updateWrite(idx, newValue: writeDelta)
             }
             
             self.list.updateReadWrite(idx, read: readBytes, write: writeBytes)
+            DiskActivityHistoryStore.shared.recordDisk(diskID: d.uuid, read: readDelta, write: writeDelta)
         }
         
         return
@@ -591,12 +596,15 @@ public class ProcessReader: Reader<[Disk_process]> {
     }
     
     public override func setup() {
-        self.popup = true
         self.setInterval(1)
     }
     
     public override func read() {
-        guard self.numberOfProcesses != 0, let output = runProcess(path: "/bin/ps", args: ["-Aceo pid,args", "-r"]) else { return }
+        guard self.numberOfProcesses != 0 else {
+            self.callback([])
+            return
+        }
+        guard let output = runProcess(path: "/bin/ps", args: ["-Aceo pid,args", "-r"]) else { return }
         
         var snapshot = self.list
         var processes: [Disk_process] = []
@@ -633,6 +641,7 @@ public class ProcessReader: Reader<[Disk_process]> {
             snapshot[pid]?.write = bytesWritten
         }
         self.list = snapshot
+        DiskActivityHistoryStore.shared.recordProcesses(processes)
         
         processes.sort {
             let firstMax = max($0.read, $0.write)
