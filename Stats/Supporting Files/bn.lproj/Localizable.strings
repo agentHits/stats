@@ -460,8 +460,6 @@
 "Next month" = "আগামী মাস"; // gemma4:31b
 "AgentHits build" = "AgentHits build";
 "Local personal AgentHits build, not official Stats." = "Local personal AgentHits build, not official Stats.";
-"Processes below do not show exact swap by PID: macOS does not expose those bytes directly." = "Processes below do not show exact swap by PID: macOS does not expose those bytes directly.";
-"Diagnostics: high Compressed/Page-ins + growing Swap - close or restart the process." = "Diagnostics: high Compressed/Page-ins + growing Swap - close or restart the process.";
 "High battery" = "উচ্চ ব্যাটারি";
 "Battery remaining" = "%0% বাকি";
 "Based on utilization" = "ব্যবহারের ভিত্তিতে"; // gemma4:31b

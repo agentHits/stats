@@ -62,7 +62,6 @@ public class RAM: Module {
     
     private var usageReader: UsageReader? = nil
     private var processReader: ProcessReader? = nil
-    private var swapProcessReader: SwapProcessReader? = nil
     
     private var splitValueState: Bool {
         return Store.shared.bool(key: "\(self.config.name)_splitValue", defaultValue: false)
@@ -126,20 +125,15 @@ public class RAM: Module {
         }
         self.settingsView.setTopInterval = { [weak self] value in
             self?.processReader?.setInterval(value)
-            self?.swapProcessReader?.setInterval(value)
         }
         
         self.usageReader = UsageReader(.RAM) { [weak self] value in
             self?.loadCallback(value)
         }
-        self.processReader = ProcessReader(.RAM) { [weak self] value in
+        self.processReader = ProcessReader(.RAM, cache: false) { [weak self] value in
             if let list = value {
                 self?.popupView.processCallback(list)
-            }
-        }
-        self.swapProcessReader = SwapProcessReader(.RAM) { [weak self] value in
-            if let list = value {
-                self?.previewView.swapProcessCallback(list)
+                self?.previewView.processCallback(list)
             }
         }
         
@@ -148,11 +142,24 @@ public class RAM: Module {
             self?.previewView.numberOfProcessesUpdated()
             DispatchQueue.global(qos: .background).async {
                 self?.processReader?.read()
-                self?.swapProcessReader?.read()
             }
         }
         
-        self.setReaders([self.usageReader, self.processReader, self.swapProcessReader])
+        self.setReaders([self.usageReader, self.processReader])
+        NotificationCenter.default.addObserver(self, selector: #selector(refreshProcessListsWhenWindowOpens), name: .openWindow, object: nil)
+    }
+
+    @objc private func refreshProcessListsWhenWindowOpens(_ notification: Notification) {
+        guard let state = notification.userInfo?["state"] as? Bool, state else { return }
+        if let module = notification.userInfo?["module"] as? String, module != self.config.name {
+            return
+        }
+
+        self.popupView.numberOfProcessesUpdated()
+        self.previewView.numberOfProcessesUpdated()
+        DispatchQueue.global(qos: .background).async {
+            self.processReader?.read()
+        }
     }
     
     private func loadCallback(_ raw: RAM_Usage?) {

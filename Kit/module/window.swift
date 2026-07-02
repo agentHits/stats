@@ -116,6 +116,7 @@ open class Window: NSStackView {
         self.segmentedControl?.widthAnchor.constraint(equalTo: self.widthAnchor, constant: -(Constants.Settings.margin*2)).isActive = true
         self.widgetSelector?.widthAnchor.constraint(equalTo: self.widthAnchor, constant: -(Constants.Settings.margin*2)).isActive = true
         self.moduleSettings?.widthAnchor.constraint(equalTo: self.widthAnchor, constant: -(Constants.Settings.margin*2)).isActive = true
+        self.previewView?.widthAnchor.constraint(equalTo: self.widthAnchor, constant: -(Constants.Settings.margin*2)).isActive = true
     }
     
     deinit {
@@ -135,6 +136,8 @@ open class Window: NSStackView {
         guard let v = self.modulePreview else { return nil }
         
         let scrollView: ScrollableStackView = ScrollableStackView()
+        scrollView.translatesAutoresizingMaskIntoConstraints = false
+        scrollView.stackView.alignment = .width
         scrollView.stackView.edgeInsets = NSEdgeInsets(
             top: 0,
             left: Constants.Settings.margin,
@@ -142,6 +145,7 @@ open class Window: NSStackView {
             right: Constants.Settings.margin
         )
         scrollView.stackView.addArrangedSubview(v)
+        v.widthAnchor.constraint(equalTo: scrollView.stackView.widthAnchor, constant: -(Constants.Settings.margin*2)).isActive = true
         
         return scrollView
     }

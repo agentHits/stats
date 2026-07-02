@@ -92,6 +92,8 @@ internal class Popup: PopupWrapper {
     private let averageCache = PopupCache<CPU_AverageLoad>()
     
     private var processes: ProcessesView? = nil
+    private var renderedProcessCount: Int = 8
+    private var latestTopProcesses: [TopProcess] = []
     private var maxFreq: Double = 0
     private var lineChartHistory: Int = 180
     private var lineChartScale: Scale = .none
@@ -117,8 +119,11 @@ internal class Popup: PopupWrapper {
     private var numberOfProcesses: Int {
         Store.shared.int(key: "\(self.title)_processes", defaultValue: 8)
     }
+    private var processListEnabled: Bool {
+        self.numberOfProcesses != 0
+    }
     private var processesHeight: CGFloat {
-        (self.processHeight*CGFloat(self.numberOfProcesses)) + (self.numberOfProcesses == 0 ? 0 : Constants.Popup.separatorHeight + 22)
+        self.processesHeight(for: self.renderedProcessCount)
     }
     private var uptimeValue: String {
         let form = DateComponentsFormatter()
@@ -150,6 +155,7 @@ internal class Popup: PopupWrapper {
         self.lineChartHistory = Store.shared.int(key: "\(self.title)_lineChartHistory", defaultValue: self.lineChartHistory)
         self.lineChartScale = Scale.fromString(Store.shared.string(key: "\(self.title)_lineChartScale", defaultValue: self.lineChartScale.key))
         self.lineChartFixedScale = Double(Store.shared.int(key: "\(self.title)_lineChartFixedScale", defaultValue: 100)) / 100
+        self.renderedProcessCount = self.processListEnabled ? self.numberOfProcesses : 0
         
         self.addArrangedSubview(self.initDashboard())
         self.addArrangedSubview(self.initChart())
@@ -366,7 +372,7 @@ internal class Popup: PopupWrapper {
     }
     
     private func initProcesses() -> NSView {
-        if self.numberOfProcesses == 0 {
+        if self.renderedProcessCount == 0 {
             let v = NSView()
             self.processesView = v
             return v
@@ -377,7 +383,7 @@ internal class Popup: PopupWrapper {
         let container: ProcessesView = ProcessesView(
             frame: NSRect(x: 0, y: 0, width: self.frame.width, height: separator.frame.origin.y),
             values: [(localizedString("Usage"), nil)],
-            n: self.numberOfProcesses
+            n: self.renderedProcessCount
         )
         self.processes = container
         
@@ -386,6 +392,31 @@ internal class Popup: PopupWrapper {
         
         self.processesView = view
         return view
+    }
+
+    private func visibleTopProcesses(from list: [TopProcess]) -> [TopProcess] {
+        guard self.processListEnabled else { return [] }
+        return Array(list.prefix(self.numberOfProcesses))
+    }
+
+    private func processesHeight(for count: Int) -> CGFloat {
+        (self.processHeight*CGFloat(count)) + (count == 0 ? 0 : Constants.Popup.separatorHeight + 22)
+    }
+
+    private func rebuildProcesses(count: Int) {
+        guard self.renderedProcessCount != count || self.processes == nil else { return }
+
+        self.renderedProcessCount = count
+
+        if let view = self.processesView {
+            self.removeArrangedSubview(view)
+            view.removeFromSuperview()
+        }
+        self.processesView = nil
+        self.processes = nil
+        self.addArrangedSubview(self.initProcesses())
+        self.initializedProcesses = false
+        self.recalculateHeight()
     }
     
     public func loadCallback(_ value: CPU_Load) {
@@ -493,32 +524,48 @@ internal class Popup: PopupWrapper {
         guard let list else { return }
         
         DispatchQueue.main.async(execute: {
-            if !(self.window?.isVisible ?? false) && self.initializedProcesses {
-                return
-            }
-            let list = list.map { $0 }
-            if list.count != self.processes?.count { self.processes?.clear() }
-            
-            for i in 0..<list.count {
-                let process = list[i]
-                self.processes?.set(i, process, ["\(process.usage)%"])
-            }
-            
-            self.initializedProcesses = true
+            self.latestTopProcesses = list
+            self.renderProcessList(self.visibleTopProcesses(from: list))
         })
     }
     
     public func numberOfProcessesUpdated() {
-        if self.processes?.count == self.numberOfProcesses { return }
-        
         DispatchQueue.main.async(execute: {
-            self.processesView?.removeFromSuperview()
-            self.processesView = nil
-            self.processes = nil
-            self.addArrangedSubview(self.initProcesses())
-            self.initializedProcesses = false
-            self.recalculateHeight()
+            let list = self.visibleTopProcesses(from: self.latestTopProcesses)
+            if !self.processListEnabled {
+                self.renderProcessList([])
+            } else if !list.isEmpty {
+                self.renderProcessList(list)
+            } else {
+                self.rebuildProcesses(count: self.numberOfProcesses)
+            }
         })
+    }
+
+    private func renderProcessList(_ list: [TopProcess]) {
+        guard self.processListEnabled else {
+            self.rebuildProcesses(count: 0)
+            self.initializedProcesses = true
+            return
+        }
+
+        guard !list.isEmpty else {
+            self.initializedProcesses = true
+            return
+        }
+
+        if list.count != self.processes?.count {
+            self.rebuildProcesses(count: list.count)
+        } else {
+            self.processes?.clear()
+        }
+
+        for i in 0..<list.count {
+            let process = list[i]
+            self.processes?.set(i, process, ["\(process.usage)%"])
+        }
+
+        self.initializedProcesses = true
     }
     
     public func limitCallback(_ value: CPU_Limit?) {

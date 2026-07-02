@@ -179,6 +179,8 @@ class SettingsWindow: NSWindow, NSWindowDelegate, NSToolbarDelegate {
         if var name = module {
             if name == "Combined modules" { name = "Dashboard" }
             self.sidebarView.openMenu(name)
+        } else if let activeModuleName {
+            NotificationCenter.default.post(name: .openWindow, object: nil, userInfo: ["module": activeModuleName, "state": true])
         }
     }
     

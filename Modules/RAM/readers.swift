@@ -146,6 +146,25 @@ internal struct SwapProcess: Codable, Process_p {
     }
 }
 
+internal enum RAMProcessDisplay {
+    static let minimumMemoryBytes: Double = 50 * 1000 * 1000
+
+    static let residentMemoryCommand = "/bin/ps -axo user=,pid=,rss=,comm= -m"
+    static let topSwapProcessCommand = "/usr/bin/top -l 1 -o mem -stats pid,command,mem,compressed,pageins"
+
+    static func visibleTopProcesses(_ processes: [TopProcess]) -> [TopProcess] {
+        processes
+            .filter { $0.usage >= Self.minimumMemoryBytes }
+            .sorted { $0.usage > $1.usage }
+    }
+
+    static func visibleSwapProcesses(_ processes: [SwapProcess]) -> [SwapProcess] {
+        processes
+            .filter { $0.memory >= Self.minimumMemoryBytes }
+            .sorted { $0.memory > $1.memory }
+    }
+}
+
 public class ProcessReader: Reader<[TopProcess]> {
     private let title: String = "RAM"
     
@@ -161,6 +180,7 @@ public class ProcessReader: Reader<[TopProcess]> {
     
     public override func setup() {
         self.popup = true
+        self.preview = true
         self.setInterval(Store.shared.int(key: "\(self.title)_updateTopInterval", defaultValue: 1))
     }
     
@@ -170,12 +190,8 @@ public class ProcessReader: Reader<[TopProcess]> {
         }
         
         let task = Process()
-        task.launchPath = "/usr/bin/top"
-        if self.combinedProcesses {
-            task.arguments = ["-l", "1", "-o", "mem", "-stats", "pid,command,mem"]
-        } else {
-            task.arguments = ["-l", "1", "-o", "mem", "-n", "\(self.numberOfProcesses)", "-stats", "pid,command,mem"]
-        }
+        task.launchPath = "/bin/ps"
+        task.arguments = ["-axo", "user=,pid=,rss=,comm=", "-m"]
         
         let outputPipe = Pipe()
         let errorPipe = Pipe()
@@ -191,7 +207,7 @@ public class ProcessReader: Reader<[TopProcess]> {
         do {
             try task.run()
         } catch let err {
-            error("top(): \(err.localizedDescription)", log: self.log)
+            error("ps(): \(err.localizedDescription)", log: self.log)
             return
         }
         
@@ -199,17 +215,20 @@ public class ProcessReader: Reader<[TopProcess]> {
         let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
         let output = String(data: outputData, encoding: .utf8)
         _ = String(data: errorData, encoding: .utf8)
-        guard let output, !output.isEmpty else { return }
+        guard let output, !output.isEmpty else {
+            self.callback([])
+            return
+        }
         
         var processes: [TopProcess] = []
         output.enumerateLines { (line, _) in
-            if line.matches("^\\d+\\** +.* +\\d+[A-Z]*\\+?\\-? *$") {
-                processes.append(ProcessReader.parseProcess(line))
+            if let process = ProcessReader.parseResidentProcess(line) {
+                processes.append(process)
             }
         }
         
         if !self.combinedProcesses {
-            self.callback(processes)
+            self.callback(RAMProcessDisplay.visibleTopProcesses(processes))
             return
         }
         
@@ -241,12 +260,12 @@ public class ProcessReader: Reader<[TopProcess]> {
             result.append(TopProcess(
                 pid: ProcessReader.getResponsiblePid(firstProcess.pid),
                 name: name,
-                usage: totalUsage
+                usage: totalUsage,
+                owner: firstProcess.owner
             ))
         }
         
-        result.sort { $0.usage > $1.usage }
-        self.callback(Array(result.prefix(self.numberOfProcesses)))
+        self.callback(RAMProcessDisplay.visibleTopProcesses(result))
     }
     
     private static let dynGetResponsiblePidFunc: UnsafeMutableRawPointer? = {
@@ -310,6 +329,40 @@ public class ProcessReader: Reader<[TopProcess]> {
         return TopProcess(pid: pid, name: name, usage: usage)
     }
 
+    static public func parseResidentProcess(_ raw: String) -> TopProcess? {
+        let parts = raw.trimmingCharacters(in: .whitespaces).split(
+            separator: " ",
+            maxSplits: 3,
+            omittingEmptySubsequences: true
+        )
+        guard parts.count == 4,
+              let pid = Int(parts[1]),
+              let rss = Double(parts[2]) else {
+            return nil
+        }
+
+        let owner = String(parts[0])
+        let command = String(parts[3]).trimmingCharacters(in: .whitespaces)
+        guard !command.isEmpty else { return nil }
+
+        var name = command
+        if command.hasPrefix("/") {
+            let lastPathComponent = URL(fileURLWithPath: command).lastPathComponent
+            if !lastPathComponent.isEmpty {
+                name = lastPathComponent
+            }
+        }
+        if let app = NSRunningApplication(processIdentifier: pid_t(pid)), let n = app.localizedName {
+            name = n
+        }
+
+        if command.contains("com.apple.Virtua") && name.contains("Docker") {
+            name = "Docker"
+        }
+
+        return TopProcess(pid: pid, name: name, usage: rss * 1024, owner: owner)
+    }
+
     static func parseTopMemory(_ raw: Substring) -> Double {
         let rawString = String(raw)
         var usage = Double(rawString.filter("01234567890.".contains)) ?? 0
@@ -348,16 +401,8 @@ internal class SwapProcessReader: Reader<[SwapProcess]> {
         }
 
         let task = Process()
-        task.launchPath = "/usr/bin/top"
-        var arguments = [
-            "-l", "1",
-            "-o", "compressed",
-            "-stats", "pid,command,mem,compressed,pageins"
-        ]
-        if !self.combinedProcesses {
-            arguments.insert(contentsOf: ["-n", "\(self.numberOfProcesses)"], at: 4)
-        }
-        task.arguments = arguments
+        task.launchPath = "/bin/sh"
+        task.arguments = ["-lc", RAMProcessDisplay.topSwapProcessCommand]
 
         let outputPipe = Pipe()
         let errorPipe = Pipe()
@@ -394,7 +439,7 @@ internal class SwapProcessReader: Reader<[SwapProcess]> {
         }
 
         if !self.combinedProcesses {
-            self.callback(processes.filter { $0.compressed > 0 })
+            self.callback(RAMProcessDisplay.visibleSwapProcesses(processes))
             return
         }
 
@@ -432,8 +477,7 @@ internal class SwapProcessReader: Reader<[SwapProcess]> {
             ))
         }
 
-        result.sort { $0.compressed > $1.compressed }
-        self.callback(Array(result.filter { $0.compressed > 0 }.prefix(self.numberOfProcesses)))
+        self.callback(RAMProcessDisplay.visibleSwapProcesses(result))
     }
 
     static func parseProcess(_ raw: String) -> SwapProcess? {

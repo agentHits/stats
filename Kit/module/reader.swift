@@ -82,7 +82,14 @@ open class Reader<T: Codable>: NSObject, ReaderInternal_p {
     private var alignWorkItem: DispatchWorkItem?
     private let alignQueue = DispatchQueue(label: "eu.exelban.readerAlignQueue")
     
-    public init(_ module: ModuleType, popup: Bool = false, preview: Bool = false, history: Bool = false, callback: @escaping (T?) -> Void = {_ in }) {
+    public init(
+        _ module: ModuleType,
+        popup: Bool = false,
+        preview: Bool = false,
+        history: Bool = false,
+        cache: Bool = true,
+        callback: @escaping (T?) -> Void = {_ in }
+    ) {
         self.popup = popup
         self.preview = preview
         self.module = module
@@ -90,10 +97,12 @@ open class Reader<T: Codable>: NSObject, ReaderInternal_p {
         self.callbackHandler = callback
         
         super.init()
-        DB.shared.setup(T.self, "\(module.stringValue)@\(self.name)")
-        if let lastValue = DB.shared.findOne(T.self, key: "\(module.stringValue)@\(self.name)") {
-            self.value = lastValue
-            callback(lastValue)
+        if cache {
+            DB.shared.setup(T.self, "\(module.stringValue)@\(self.name)")
+            if let lastValue = DB.shared.findOne(T.self, key: "\(module.stringValue)@\(self.name)") {
+                self.value = lastValue
+                callback(lastValue)
+            }
         }
         self.setup()
         

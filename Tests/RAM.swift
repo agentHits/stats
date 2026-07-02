@@ -11,6 +11,7 @@
 
 import XCTest
 import Darwin
+import Kit
 @testable import RAM
 
 class RAM: XCTestCase {
@@ -101,6 +102,82 @@ class RAM: XCTestCase {
         XCTAssertEqual(kilobytes.memory, 3792.0 / 1024 * 1000 * 1000)
         XCTAssertEqual(kilobytes.compressed, 2192.0 / 1024 * 1000 * 1000)
         XCTAssertEqual(kilobytes.pageins, 495457)
+    }
+
+    func testProcessDisplayFiltersTopProcessesFrom50MB() throws {
+        let visible = RAMProcessDisplay.visibleTopProcesses([
+            TopProcess(pid: 1, name: "small", usage: 49 * 1000 * 1000),
+            TopProcess(pid: 2, name: "edge", usage: 50 * 1000 * 1000),
+            TopProcess(pid: 3, name: "large", usage: 150 * 1000 * 1000)
+        ])
+
+        XCTAssertEqual(visible.map { $0.pid }, [3, 2])
+    }
+
+    func testProcessReader_parseResidentProcess() throws {
+        let process = try XCTUnwrap(ProcessReader.parseResidentProcess("agent 999999 51200 /Applications/Foo.app/Contents/MacOS/Foo"))
+        XCTAssertEqual(process.pid, 999999)
+        XCTAssertEqual(process.name, "Foo")
+        XCTAssertEqual(process.usage, Double(51200 * 1024))
+        XCTAssertEqual(process.owner, "agent")
+    }
+
+    func testTopProcessDecodesCachedRowsWithoutOwner() throws {
+        let data = try XCTUnwrap(#"{"pid":1,"name":"cached","usage":1024}"#.data(using: .utf8))
+        let process = try JSONDecoder().decode(TopProcess.self, from: data)
+
+        XCTAssertEqual(process.pid, 1)
+        XCTAssertEqual(process.name, "cached")
+        XCTAssertEqual(process.usage, 1024)
+        XCTAssertNil(process.owner)
+    }
+
+    func testProcessReaderReadReturnsVisibleTopProcesses() throws {
+        let hadProcessCount = Store.shared.exist(key: "RAM_processes")
+        let previousProcessCount = Store.shared.int(key: "RAM_processes", defaultValue: 8)
+        let hadCombinedProcesses = Store.shared.exist(key: "RAM_combinedProcesses")
+        let previousCombinedProcesses = Store.shared.bool(key: "RAM_combinedProcesses", defaultValue: false)
+
+        Store.shared.set(key: "RAM_processes", value: 15)
+        Store.shared.set(key: "RAM_combinedProcesses", value: false)
+        XCTAssertEqual(Store.shared.int(key: "RAM_processes", defaultValue: 8), 15)
+        XCTAssertFalse(Store.shared.bool(key: "RAM_combinedProcesses", defaultValue: true))
+
+        defer {
+            if hadProcessCount {
+                Store.shared.set(key: "RAM_processes", value: previousProcessCount)
+            } else {
+                Store.shared.remove("RAM_processes")
+            }
+
+            if hadCombinedProcesses {
+                Store.shared.set(key: "RAM_combinedProcesses", value: previousCombinedProcesses)
+            } else {
+                Store.shared.remove("RAM_combinedProcesses")
+            }
+        }
+
+        let expectation = self.expectation(description: "RAM ProcessReader returns visible processes")
+        let reader = ProcessReader(.RAM, cache: false) { list in
+            guard let list else { return }
+            XCTAssertFalse(list.isEmpty)
+            XCTAssertTrue(list.allSatisfy { $0.usage >= RAMProcessDisplay.minimumMemoryBytes })
+            XCTAssertTrue(list.contains { $0.owner != nil })
+            expectation.fulfill()
+        }
+
+        reader.read()
+        wait(for: [expectation], timeout: 8)
+    }
+
+    func testProcessDisplayFiltersSwapProcessesFrom50MBMemory() throws {
+        let visible = RAMProcessDisplay.visibleSwapProcesses([
+            SwapProcess(pid: 1, name: "small", memory: 49 * 1000 * 1000, compressed: 900 * 1000 * 1000, pageins: 1),
+            SwapProcess(pid: 2, name: "edge", memory: 50 * 1000 * 1000, compressed: 50 * 1000 * 1000, pageins: 2),
+            SwapProcess(pid: 3, name: "large", memory: 150 * 1000 * 1000, compressed: 10 * 1000 * 1000, pageins: 3)
+        ])
+
+        XCTAssertEqual(visible.map { $0.pid }, [3, 2])
     }
 
     func testMemoryBreakdownUsesAppWiredAndCompressedMemory() throws {

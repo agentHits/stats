@@ -13,12 +13,11 @@ import Cocoa
 import Kit
 
 internal class Popup: PopupWrapper {
-    private var grid: NSGridView? = nil
-    
     private let dashboardHeight: CGFloat = 90
     private let chartHeight: CGFloat = 90 + Constants.Popup.separatorHeight
     private let detailsHeight: CGFloat = (22*6) + Constants.Popup.separatorHeight + 16
     private let processHeight: CGFloat = 22
+    private let maxVisibleProcessRows: Int = 15
     
     private var usedField: NSTextField? = nil
     private var freeField: NSTextField? = nil
@@ -44,12 +43,18 @@ internal class Popup: PopupWrapper {
     private let loadCache = PopupCache<RAM_Usage>()
     
     private var processes: ProcessesView? = nil
+    private var processesView: NSView? = nil
+    private var renderedProcessCount: Int = 8
+    private var latestTopProcesses: [TopProcess] = []
     
     private var numberOfProcesses: Int {
         Store.shared.int(key: "\(self.title)_processes", defaultValue: 8)
     }
+    private var processListEnabled: Bool {
+        self.numberOfProcesses != 0
+    }
     private var processesHeight: CGFloat {
-        (self.processHeight*CGFloat(self.numberOfProcesses)) + (self.numberOfProcesses == 0 ? 0 : Constants.Popup.separatorHeight + 22)
+        self.processesHeight(for: self.renderedProcessCount)
     }
     
     private var lineChartHistory: Int = 180
@@ -69,13 +74,10 @@ internal class Popup: PopupWrapper {
     private var chartColor: NSColor { self.chartColorState.additional as? NSColor ?? NSColor.systemBlue }
     
     public init(_ module: ModuleType) {
-        super.init(module, frame: NSRect(
-            x: 0,
-            y: 0,
-            width: Constants.Popup.width,
-            height: dashboardHeight + chartHeight + detailsHeight
-        ))
-        self.setFrameSize(NSSize(width: self.frame.width, height: self.frame.height+self.processesHeight))
+        super.init(module, frame: NSRect(x: 0, y: 0, width: Constants.Popup.width, height: 0))
+
+        self.spacing = 0
+        self.orientation = .vertical
         
         self.appColorState = SColor.fromString(Store.shared.string(key: "\(self.title)_appColor", defaultValue: self.appColorState.key))
         self.wiredColorState = SColor.fromString(Store.shared.string(key: "\(self.title)_wiredColor", defaultValue: self.wiredColorState.key))
@@ -85,22 +87,14 @@ internal class Popup: PopupWrapper {
         self.lineChartHistory = Store.shared.int(key: "\(self.title)_lineChartHistory", defaultValue: self.lineChartHistory)
         self.lineChartScale = Scale.fromString(Store.shared.string(key: "\(self.title)_lineChartScale", defaultValue: self.lineChartScale.key))
         self.lineChartFixedScale = Double(Store.shared.int(key: "\(self.title)_lineChartFixedScale", defaultValue: 100)) / 100
+        self.renderedProcessCount = self.processListEnabled ? self.numberOfProcesses : 0
         
-        let gridView: NSGridView = NSGridView(frame: NSRect(x: 0, y: 0, width: self.frame.width, height: self.frame.height))
-        gridView.rowSpacing = 0
-        gridView.yPlacement = .fill
+        self.addArrangedSubview(self.initDashboard())
+        self.addArrangedSubview(self.initChart())
+        self.addArrangedSubview(self.initDetails())
+        self.addArrangedSubview(self.initProcesses())
         
-        gridView.addRow(with: [self.initDashboard()])
-        gridView.addRow(with: [self.initChart()])
-        gridView.addRow(with: [self.initDetails()])
-        gridView.addRow(with: [self.initProcesses()])
-        
-        gridView.row(at: 0).height = self.dashboardHeight
-        gridView.row(at: 1).height = self.chartHeight
-        gridView.row(at: 2).height = self.detailsHeight
-        
-        self.addSubview(gridView)
-        self.grid = gridView
+        self.recalculateHeight()
     }
     
     required init?(coder: NSCoder) {
@@ -119,28 +113,64 @@ internal class Popup: PopupWrapper {
         self.processes?.setLock(false)
     }
     
-    public func numberOfProcessesUpdated() {
-        if self.processes?.count == self.numberOfProcesses { return }
-        
-        DispatchQueue.main.async(execute: {
-            let h: CGFloat = self.dashboardHeight + self.chartHeight + self.detailsHeight + self.processesHeight
+    private func recalculateHeight() {
+        var h: CGFloat = 0
+        self.arrangedSubviews.forEach { view in
+            if view.bounds.height > 0 {
+                h += view.bounds.height
+            } else if let stackView = view as? NSStackView {
+                h += stackView.arrangedSubviews.map { $0.bounds.height + stackView.spacing }.reduce(0, +)
+            }
+        }
+        if self.frame.size.height != h {
             self.setFrameSize(NSSize(width: self.frame.width, height: h))
-            
-            self.grid?.setFrameSize(NSSize(width: self.frame.width, height: h))
-            
-            self.grid?.row(at: 3).cell(at: 0).contentView?.removeFromSuperview()
-            self.processes = nil
-            self.grid?.removeRow(at: 3)
-            self.grid?.addRow(with: [self.initProcesses()])
-            self.processesInitialized = false
-            
             self.sizeCallback?(self.frame.size)
+        }
+    }
+
+    public func numberOfProcessesUpdated() {
+        DispatchQueue.main.async(execute: {
+            let list = self.visibleTopProcesses(from: self.latestTopProcesses)
+            if !self.processListEnabled {
+                self.renderProcessList([])
+            } else if !list.isEmpty {
+                self.renderProcessList(list)
+            } else {
+                self.rebuildProcesses(count: self.numberOfProcesses)
+            }
         })
+    }
+
+    private func visibleTopProcesses(from list: [TopProcess]) -> [TopProcess] {
+        guard self.processListEnabled else { return [] }
+        return Array(list.prefix(self.numberOfProcesses))
+    }
+
+    private func processesHeight(for count: Int) -> CGFloat {
+        let visibleCount = min(count, self.maxVisibleProcessRows)
+        return (self.processHeight * CGFloat(visibleCount)) + (count == 0 ? 0 : Constants.Popup.separatorHeight + 22)
+    }
+
+    private func rebuildProcesses(count: Int) {
+        guard self.renderedProcessCount != count || self.processes == nil else { return }
+
+        self.renderedProcessCount = count
+
+        if let view = self.processesView {
+            self.removeArrangedSubview(view)
+            view.removeFromSuperview()
+        }
+        self.processesView = nil
+        self.processes = nil
+        self.addArrangedSubview(self.initProcesses())
+        self.processesInitialized = false
+
+        self.recalculateHeight()
     }
     
     private func initDashboard() -> NSView {
-        let view = NSStackView()
-        view.heightAnchor.constraint(equalToConstant: self.dashboardHeight).isActive = true
+        let view = NSStackView(frame: NSRect(x: 0, y: 0, width: self.frame.width, height: self.dashboardHeight))
+        view.heightAnchor.constraint(equalToConstant: view.bounds.height).isActive = true
         view.orientation = .horizontal
         view.distribution = .fillEqually
         
@@ -184,6 +214,7 @@ internal class Popup: PopupWrapper {
     
     private func initChart() -> NSView  {
         let view: NSView = NSView(frame: NSRect(x: 0, y: 0, width: self.frame.width, height: self.chartHeight))
+        view.heightAnchor.constraint(equalToConstant: view.bounds.height).isActive = true
         let separator = separatorView(localizedString("Usage history"), origin: NSPoint(x: 0, y: self.chartHeight-Constants.Popup.separatorHeight), width: self.frame.width)
         let container: NSView = NSView(frame: NSRect(x: 0, y: 0, width: self.frame.width, height: separator.frame.origin.y))
         container.wantsLayer = true
@@ -203,6 +234,7 @@ internal class Popup: PopupWrapper {
     
     private func initDetails() -> NSView  {
         let view: NSView = NSView(frame: NSRect(x: 0, y: 0, width: self.frame.width, height: self.detailsHeight))
+        view.heightAnchor.constraint(equalToConstant: view.bounds.height).isActive = true
         let separator = separatorView(localizedString("Details"), origin: NSPoint(x: 0, y: self.detailsHeight-Constants.Popup.separatorHeight), width: self.frame.width)
         let container: NSStackView = NSStackView(frame: NSRect(x: 0, y: 0, width: view.frame.width, height: separator.frame.origin.y))
         container.orientation = .vertical
@@ -223,20 +255,40 @@ internal class Popup: PopupWrapper {
     }
     
     private func initProcesses() -> NSView  {
-        if self.numberOfProcesses == 0 { return NSView() }
+        if self.renderedProcessCount == 0 {
+            let view = NSView()
+            self.processesView = view
+            return view
+        }
         
         let view: NSView = NSView(frame: NSRect(x: 0, y: 0, width: self.frame.width, height: self.processesHeight))
+        view.heightAnchor.constraint(equalToConstant: view.bounds.height).isActive = true
         let separator = separatorView(localizedString("Top processes"), origin: NSPoint(x: 0, y: self.processesHeight-Constants.Popup.separatorHeight), width: self.frame.width)
+        let scrollFrame = NSRect(x: 0, y: 0, width: self.frame.width, height: separator.frame.origin.y)
+        let scrollView = NSScrollView(frame: scrollFrame)
+        scrollView.hasVerticalScroller = self.renderedProcessCount > self.maxVisibleProcessRows
+        scrollView.autohidesScrollers = true
+        scrollView.borderType = .noBorder
+        scrollView.drawsBackground = false
+        scrollView.contentView.drawsBackground = false
+
         let container: ProcessesView = ProcessesView(
-            frame: NSRect(x: 0, y: 0, width: self.frame.width, height: separator.frame.origin.y),
+            frame: NSRect(
+                x: 0,
+                y: 0,
+                width: self.frame.width,
+                height: self.processHeight * CGFloat(self.renderedProcessCount + 1)
+            ),
             values: [(localizedString("Usage"), nil)],
-            n: self.numberOfProcesses
+            n: self.renderedProcessCount
         )
         self.processes = container
+        scrollView.documentView = container
         
         view.addSubview(separator)
-        view.addSubview(container)
+        view.addSubview(scrollView)
         
+        self.processesView = view
         return view
     }
     
@@ -279,19 +331,35 @@ internal class Popup: PopupWrapper {
     
     public func processCallback(_ list: [TopProcess]) {
         DispatchQueue.main.async(execute: {
-            if !(self.window?.isVisible ?? false) && self.processesInitialized {
-                return
-            }
-            let list = list.map { $0 }
-            if list.count != self.processes?.count { self.processes?.clear() }
-            
-            for i in 0..<list.count {
-                let process = list[i]
-                self.processes?.set(i, process, [Units(bytes: Int64(process.usage)).getReadableMemory(style: .memory)])
-            }
-            
-            self.processesInitialized = true
+            self.latestTopProcesses = list
+            self.renderProcessList(self.visibleTopProcesses(from: list))
         })
+    }
+
+    private func renderProcessList(_ list: [TopProcess]) {
+        guard self.processListEnabled else {
+            self.rebuildProcesses(count: 0)
+            self.processesInitialized = true
+            return
+        }
+
+        guard !list.isEmpty else {
+            self.processesInitialized = true
+            return
+        }
+
+        if list.count != self.processes?.count {
+            self.rebuildProcesses(count: list.count)
+        } else {
+            self.processes?.clear()
+        }
+
+        for i in 0..<list.count {
+            let process = list[i]
+            self.processes?.set(i, process, [Units(bytes: Int64(process.usage)).getReadableMemory(style: .memory)])
+        }
+
+        self.processesInitialized = true
     }
     
     // MARK: - Settings

@@ -460,8 +460,6 @@
 "Next month" = "Nächster Monat"; // gemma4:31b
 "AgentHits build" = "AgentHits build";
 "Local personal AgentHits build, not official Stats." = "Local personal AgentHits build, not official Stats.";
-"Processes below do not show exact swap by PID: macOS does not expose those bytes directly." = "Processes below do not show exact swap by PID: macOS does not expose those bytes directly.";
-"Diagnostics: high Compressed/Page-ins + growing Swap - close or restart the process." = "Diagnostics: high Compressed/Page-ins + growing Swap - close or restart the process.";
 
 // Colors
 "Based on utilization" = "Nach Auslastung";

@@ -30,14 +30,17 @@ public class ProcessesView: NSStackView {
         super.init(frame: frame)
         
         self.orientation = .vertical
+        self.alignment = .width
         self.spacing = 0
         
         let header = self.generateHeaderView(values)
         self.addArrangedSubview(header)
+        header.widthAnchor.constraint(equalTo: self.widthAnchor).isActive = true
         
         for _ in 0..<n {
             let view = ProcessView(n: values.count)
             self.addArrangedSubview(view)
+            view.widthAnchor.constraint(equalTo: self.widthAnchor).isActive = true
             self.list.append(view)
         }
     }
@@ -48,10 +51,9 @@ public class ProcessesView: NSStackView {
     
     private func generateHeaderView(_ values: [ProcessHeader]) -> NSView {
         let view = NSStackView()
-        view.widthAnchor.constraint(equalToConstant: self.bounds.width).isActive = true
         view.heightAnchor.constraint(equalToConstant: ProcessView.height).isActive = true
         view.orientation = .horizontal
-        view.distribution = .fillProportionally
+        view.distribution = .fill
         view.spacing = 0
         
         let iconView: NSImageView = NSImageView()
@@ -65,6 +67,8 @@ public class ProcessesView: NSStackView {
         titleField.stringValue = localizedString("Process")
         titleField.textColor = .tertiaryLabelColor
         titleField.font = NSFont.systemFont(ofSize: 11, weight: .medium)
+        titleField.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        titleField.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         view.addArrangedSubview(titleField)
         
         if values.count == 1, let v = values.first {
@@ -75,6 +79,9 @@ public class ProcessesView: NSStackView {
             field.alignment = .right
             field.textColor = .tertiaryLabelColor
             field.font = NSFont.systemFont(ofSize: 11, weight: .medium)
+            field.widthAnchor.constraint(equalToConstant: 90).isActive = true
+            field.setContentHuggingPriority(.required, for: .horizontal)
+            field.setContentCompressionResistancePriority(.required, for: .horizontal)
             view.addArrangedSubview(field)
         } else {
             for v in values {
@@ -144,7 +151,7 @@ public class ProcessView: NSStackView {
         
         self.wantsLayer = true
         self.orientation = .horizontal
-        self.distribution = .fillProportionally
+        self.distribution = .fill
         self.spacing = 0
         self.layer?.cornerRadius = 3
         
@@ -188,9 +195,10 @@ public class ProcessView: NSStackView {
             self.killView.widthAnchor.constraint(equalToConstant: rect.width),
             self.killView.heightAnchor.constraint(equalToConstant: rect.height),
             self.labelView.heightAnchor.constraint(equalToConstant: 16),
-            self.widthAnchor.constraint(equalToConstant: self.bounds.width),
             self.heightAnchor.constraint(equalToConstant: self.bounds.height)
         ])
+        self.labelView.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        self.labelView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
     }
     
     required init?(coder: NSCoder) {
@@ -202,7 +210,9 @@ public class ProcessView: NSStackView {
         
         for _ in 0..<n {
             let view: ValueField = ValueField()
-            view.widthAnchor.constraint(equalToConstant: 68).isActive = true
+            view.widthAnchor.constraint(equalToConstant: n == 1 ? 90 : 60).isActive = true
+            view.setContentHuggingPriority(.required, for: .horizontal)
+            view.setContentCompressionResistancePriority(.required, for: .horizontal)
             if n != 1 {
                 view.font = NSFont.systemFont(ofSize: 10, weight: .regular)
             }

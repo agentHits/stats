@@ -780,6 +780,7 @@ public struct TopProcess: Codable, Process_p {
     public var pid: Int
     public var name: String
     public var usage: Double
+    public var owner: String?
     public var icon: NSImage {
         get {
             if let app = NSRunningApplication(processIdentifier: pid_t(self.pid)), let icon = app.icon {
@@ -789,10 +790,26 @@ public struct TopProcess: Codable, Process_p {
         }
     }
     
-    public init(pid: Int, name: String, usage: Double) {
+    public init(pid: Int, name: String, usage: Double, owner: String? = nil) {
         self.pid = pid
         self.name = name
         self.usage = usage
+        self.owner = owner
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case pid
+        case name
+        case usage
+        case owner
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.pid = try container.decode(Int.self, forKey: .pid)
+        self.name = try container.decode(String.self, forKey: .name)
+        self.usage = try container.decode(Double.self, forKey: .usage)
+        self.owner = try container.decodeIfPresent(String.self, forKey: .owner)
     }
 }
 
@@ -1546,6 +1563,8 @@ public class PreferencesSection: NSStackView {
         super.init(frame: .zero)
         
         self.orientation = .vertical
+        self.alignment = .width
+        self.distribution = .fill
         self.spacing = 0
         if let id {
             self.identifier = NSUserInterfaceItemIdentifier(id)
@@ -1556,6 +1575,8 @@ public class PreferencesSection: NSStackView {
         }
         
         self.container.orientation = .vertical
+        self.container.alignment = .width
+        self.container.distribution = .fill
         self.container.wantsLayer = true
         self.container.layer?.backgroundColor = NSColor.quaternaryLabelColor.withAlphaComponent(0.025).cgColor
         self.container.layer?.cornerRadius = Constants.Settings.margin

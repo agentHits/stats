@@ -144,7 +144,7 @@ public class CPU: Module {
         self.loadReader = LoadReader(.CPU) { [weak self] value in
             self?.loadCallback(value)
         }
-        self.processReader = ProcessReader(.CPU) { [weak self] value in
+        self.processReader = ProcessReader(.CPU, cache: false) { [weak self] value in
             self?.popupView.processCallback(value)
         }
         self.averageLoadReader = AverageLoadReader(.CPU, popup: true) { [weak self] value in

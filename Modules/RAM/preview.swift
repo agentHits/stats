@@ -20,12 +20,16 @@ internal class Preview: PreviewWrapper {
     private var pressureLineChart: LineChartView? = nil
     private var swapCircle: PieChartView? = nil
     private var swapLineChart: LineChartView? = nil
-    private var swapContainer: NSStackView? = nil
-    private var swapHeightConstraint: NSLayoutConstraint? = nil
-    private var swapInfo: NSView? = nil
-    private var swapProcesses: ProcessesView? = nil
+    private var agentProcesses: ProcessesView? = nil
+    private var systemProcesses: ProcessesView? = nil
+    private var processListContainer: NSStackView? = nil
+    private var processColumnsContainer: NSView? = nil
     private var swapProcessesInitialized: Bool = false
+    private var renderedAgentProcessCount: Int = 0
+    private var renderedSystemProcessCount: Int = 0
+    private var latestTopProcesses: [TopProcess] = []
     private let processHeight: CGFloat = 22
+    private let processColumnTitleHeight: CGFloat = 18
     
     private var appColorState: SColor = .secondBlue
     private var appColor: NSColor { self.appColorState.additional as? NSColor ?? NSColor.systemRed }
@@ -47,26 +51,26 @@ internal class Preview: PreviewWrapper {
     private var swapField: NSTextField? = nil
     
     private var initialized: Bool = false
-    private var swapProcessCount: Int {
+    private var configuredSwapProcessCount: Int {
         Store.shared.int(key: "\(self.module.stringValue)_processes", defaultValue: 8)
     }
-    private var swapInfoHeight: CGFloat {
-        self.swapProcessCount == 0 ? 0 : 58
+    private var swapProcessListEnabled: Bool {
+        self.configuredSwapProcessCount != 0
     }
-    private var swapProcessesHeight: CGFloat {
-        self.swapProcessCount == 0 ? 0 : self.processHeight * CGFloat(self.swapProcessCount + 1)
-    }
-    private var swapSpacingHeight: CGFloat {
-        self.swapProcessCount == 0 ? 0 : Constants.Settings.margin * 2
-    }
-    private var swapViewHeight: CGFloat {
-        90 + self.swapInfoHeight + self.swapProcessesHeight + self.swapSpacingHeight
+    private var visibleProcessColumnCount: Int {
+        max(self.renderedAgentProcessCount, self.renderedSystemProcessCount)
     }
     
     public init(_ module: ModuleType) {
         super.init(type: module)
+
+        self.alignment = .width
+        self.distribution = .fill
         
         self.loadColors()
+        let initialProcessCount = self.swapProcessListEnabled ? self.configuredSwapProcessCount : 0
+        self.renderedAgentProcessCount = initialProcessCount
+        self.renderedSystemProcessCount = initialProcessCount
         
         let splitView = NSStackView()
         splitView.orientation = .horizontal
@@ -77,6 +81,13 @@ internal class Preview: PreviewWrapper {
         self.addArrangedSubview(PreferencesSection([self.usageView()]))
         self.addArrangedSubview(PreferencesSection([self.historyView()]))
         self.addArrangedSubview(splitView)
+        let processesSection = PreferencesSection(title: localizedString("Top processes"), [self.processesView()])
+        self.addArrangedSubview(processesSection)
+        processesSection.widthAnchor.constraint(equalTo: self.widthAnchor).isActive = true
+        self.processListContainer?.widthAnchor.constraint(
+            equalTo: processesSection.widthAnchor,
+            constant: -(Constants.Settings.margin*2)
+        ).isActive = true
         
         self.addArrangedSubview(NSView())
     }
@@ -238,12 +249,10 @@ internal class Preview: PreviewWrapper {
     private func swapView() -> NSView {
         let view = NSStackView()
         view.distribution = .fill
+        view.alignment = .width
         view.orientation = .vertical
         view.translatesAutoresizingMaskIntoConstraints = false
-        let heightConstraint = view.heightAnchor.constraint(equalToConstant: self.swapViewHeight)
-        heightConstraint.isActive = true
-        self.swapContainer = view
-        self.swapHeightConstraint = heightConstraint
+        view.heightAnchor.constraint(equalToConstant: 90).isActive = true
         view.edgeInsets = NSEdgeInsets(
             top: Constants.Settings.margin,
             left: Constants.Settings.margin,
@@ -274,89 +283,136 @@ internal class Preview: PreviewWrapper {
         chartView.addArrangedSubview(circle)
         chartView.addArrangedSubview(chart)
         view.addArrangedSubview(chartView)
-
-        if self.swapProcessCount > 0 {
-            let info = self.makeSwapInfoView()
-            self.swapInfo = info
-            view.addArrangedSubview(info)
-
-            let processes = self.makeSwapProcessesView()
-            self.swapProcesses = processes
-            view.addArrangedSubview(processes)
-        }
         
         return view
     }
 
-    private func makeSwapInfoView() -> NSView {
+    private func processesView() -> NSView {
         let view = NSStackView()
+        view.distribution = .fill
+        view.alignment = .width
         view.orientation = .vertical
-        view.distribution = .fillEqually
-        view.spacing = 2
-        view.heightAnchor.constraint(equalToConstant: self.swapInfoHeight).isActive = true
-
-        let source = self.swapInfoLabel(localizedString("Processes below do not show exact swap by PID: macOS does not expose those bytes directly."))
-        let diagnostic = self.swapInfoLabel(localizedString("Diagnostics: high Compressed/Page-ins + growing Swap - close or restart the process."))
-
-        view.addArrangedSubview(source)
-        view.addArrangedSubview(diagnostic)
-
+        view.translatesAutoresizingMaskIntoConstraints = false
+        view.edgeInsets = NSEdgeInsets(
+            top: Constants.Settings.margin,
+            left: Constants.Settings.margin,
+            bottom: Constants.Settings.margin,
+            right: Constants.Settings.margin
+        )
+        view.spacing = Constants.Settings.margin
+        self.processListContainer = view
+        self.rebuildProcessColumnsView()
         return view
     }
 
-    private func swapInfoLabel(_ value: String) -> NSTextField {
-        let field = NSTextField(wrappingLabelWithString: value)
-        field.font = NSFont.systemFont(ofSize: 10, weight: .regular)
-        field.textColor = .secondaryLabelColor
-        field.maximumNumberOfLines = 2
-        field.lineBreakMode = .byWordWrapping
-        field.toolTip = value
-        return field
-    }
+    private func makeProcessColumn(title: String, count: Int, assign: (ProcessesView) -> Void) -> NSView {
+        let column = NSStackView()
+        column.orientation = .vertical
+        column.alignment = .width
+        column.distribution = .fill
+        column.spacing = 4
 
-    private func makeSwapProcessesView() -> ProcessesView {
+        let titleField = LabelField(title)
+        titleField.textColor = .tertiaryLabelColor
+        titleField.font = NSFont.systemFont(ofSize: 11, weight: .medium)
+        titleField.toolTip = title
+        titleField.heightAnchor.constraint(equalToConstant: self.processColumnTitleHeight).isActive = true
+
         let processes = ProcessesView(
             values: [
-                (localizedString("Compressed"), self.compressedColor),
-                ("Page-ins", self.chartColor)
+                (localizedString("Usage"), nil)
             ],
-            n: self.swapProcessCount
+            n: count
         )
-        processes.toolTip = localizedString("Swap")
-        processes.heightAnchor.constraint(equalToConstant: self.processHeight * CGFloat(self.swapProcessCount + 1)).isActive = true
-        return processes
+        processes.toolTip = localizedString("Top processes")
+        processes.heightAnchor.constraint(equalToConstant: self.processHeight * CGFloat(count + 1)).isActive = true
+        assign(processes)
+
+        column.addArrangedSubview(titleField)
+        column.addArrangedSubview(processes)
+        processes.widthAnchor.constraint(equalTo: column.widthAnchor).isActive = true
+        return column
+    }
+
+    private func makeProcessColumnsView() -> NSView {
+        let columns = NSStackView()
+        columns.orientation = .horizontal
+        columns.alignment = .top
+        columns.distribution = .fillEqually
+        columns.spacing = Constants.Settings.margin*2
+        columns.translatesAutoresizingMaskIntoConstraints = false
+        columns.heightAnchor.constraint(equalToConstant: self.processColumnTitleHeight + self.processHeight * CGFloat(self.visibleProcessColumnCount + 1)).isActive = true
+
+        let userTitle = NSUserName().isEmpty ? "agent" : NSUserName()
+        columns.addArrangedSubview(self.makeProcessColumn(title: userTitle, count: self.renderedAgentProcessCount) { view in
+            self.agentProcesses = view
+        })
+        columns.addArrangedSubview(self.makeProcessColumn(title: "root / system", count: self.renderedSystemProcessCount) { view in
+            self.systemProcesses = view
+        })
+
+        return columns
     }
 
     public func numberOfProcessesUpdated() {
         DispatchQueue.main.async(execute: {
-            self.rebuildSwapProcessesView()
+            let lists = self.visibleTopProcessColumns(from: self.latestTopProcesses)
+            if !self.swapProcessListEnabled {
+                self.renderProcessColumns(agent: [], system: [])
+            } else if !lists.agent.isEmpty || !lists.system.isEmpty {
+                self.renderProcessColumns(agent: lists.agent, system: lists.system)
+            } else {
+                self.rebuildProcessColumns(agentCount: self.configuredSwapProcessCount, systemCount: self.configuredSwapProcessCount)
+            }
         })
     }
 
-    private func rebuildSwapProcessesView() {
-        if let info = self.swapInfo {
-            self.swapContainer?.removeArrangedSubview(info)
-            info.removeFromSuperview()
-            self.swapInfo = nil
+    private func visibleTopProcessColumns(from list: [TopProcess]) -> (agent: [TopProcess], system: [TopProcess]) {
+        guard self.swapProcessListEnabled else { return ([], []) }
+
+        let currentUser = NSUserName()
+        let visible = RAMProcessDisplay.visibleTopProcesses(list)
+        let agent = visible.filter { $0.owner == currentUser }
+        let system = visible.filter { $0.owner != currentUser }
+
+        return (
+            Array(agent.prefix(self.configuredSwapProcessCount)),
+            Array(system.prefix(self.configuredSwapProcessCount))
+        )
+    }
+
+    private func rebuildProcessColumns(agentCount: Int, systemCount: Int) {
+        guard self.renderedAgentProcessCount != agentCount ||
+                self.renderedSystemProcessCount != systemCount ||
+                self.agentProcesses == nil ||
+                self.systemProcesses == nil else { return }
+
+        self.renderedAgentProcessCount = agentCount
+        self.renderedSystemProcessCount = systemCount
+        self.rebuildProcessColumnsView()
+    }
+
+    private func rebuildProcessColumnsView() {
+        if let processesContainer = self.processColumnsContainer {
+            self.processListContainer?.removeArrangedSubview(processesContainer)
+            processesContainer.removeFromSuperview()
+            self.processColumnsContainer = nil
+            self.agentProcesses = nil
+            self.systemProcesses = nil
         }
 
-        if let processes = self.swapProcesses {
-            self.swapContainer?.removeArrangedSubview(processes)
-            processes.removeFromSuperview()
-            self.swapProcesses = nil
+        if self.swapProcessListEnabled && self.visibleProcessColumnCount > 0 {
+            let processes = self.makeProcessColumnsView()
+            self.processColumnsContainer = processes
+            self.processListContainer?.addArrangedSubview(processes)
+            if let processListContainer = self.processListContainer {
+                processes.widthAnchor.constraint(
+                    equalTo: processListContainer.widthAnchor,
+                    constant: -(processListContainer.edgeInsets.left + processListContainer.edgeInsets.right)
+                ).isActive = true
+            }
         }
 
-        if self.swapProcessCount > 0 {
-            let info = self.makeSwapInfoView()
-            self.swapInfo = info
-            self.swapContainer?.addArrangedSubview(info)
-
-            let processes = self.makeSwapProcessesView()
-            self.swapProcesses = processes
-            self.swapContainer?.addArrangedSubview(processes)
-        }
-
-        self.swapHeightConstraint?.constant = self.swapViewHeight
         self.swapProcessesInitialized = false
     }
     
@@ -400,24 +456,53 @@ internal class Preview: PreviewWrapper {
         })
     }
 
-    public func swapProcessCallback(_ list: [SwapProcess]) {
+    public func processCallback(_ list: [TopProcess]) {
         DispatchQueue.main.async(execute: {
-            if !(self.window?.isVisible ?? false) && self.swapProcessesInitialized {
-                return
-            }
-            if self.swapProcesses?.count != self.swapProcessCount {
-                self.rebuildSwapProcessesView()
-            }
-            self.swapProcesses?.clear()
-
-            for (idx, process) in list.prefix(self.swapProcessCount).enumerated() {
-                self.swapProcesses?.set(idx, process, [
-                    Units(bytes: Int64(process.compressed)).getReadableMemory(style: .memory),
-                    "\(process.pageins)"
-                ])
-            }
-
-            self.swapProcessesInitialized = true
+            self.latestTopProcesses = list
+            let lists = self.visibleTopProcessColumns(from: list)
+            self.renderProcessColumns(agent: lists.agent, system: lists.system)
         })
+    }
+
+    private func renderProcessColumns(agent: [TopProcess], system: [TopProcess]) {
+        guard self.swapProcessListEnabled else {
+            self.renderedAgentProcessCount = 0
+            self.renderedSystemProcessCount = 0
+            self.rebuildProcessColumnsView()
+            self.swapProcessesInitialized = true
+            return
+        }
+
+        guard !agent.isEmpty || !system.isEmpty else {
+            self.rebuildProcessColumns(agentCount: self.configuredSwapProcessCount, systemCount: self.configuredSwapProcessCount)
+            self.agentProcesses?.clear()
+            self.systemProcesses?.clear()
+            self.swapProcessesInitialized = true
+            return
+        }
+
+        if self.renderedAgentProcessCount != agent.count || self.renderedSystemProcessCount != system.count {
+            self.rebuildProcessColumns(agentCount: agent.count, systemCount: system.count)
+        } else if self.agentProcesses?.count != self.renderedAgentProcessCount ||
+                    self.systemProcesses?.count != self.renderedSystemProcessCount {
+            self.rebuildProcessColumnsView()
+        } else {
+            self.agentProcesses?.clear()
+            self.systemProcesses?.clear()
+        }
+
+        for (idx, process) in agent.enumerated() {
+            self.agentProcesses?.set(idx, process, [
+                Units(bytes: Int64(process.usage)).getReadableMemory(style: .memory)
+            ])
+        }
+
+        for (idx, process) in system.enumerated() {
+            self.systemProcesses?.set(idx, process, [
+                Units(bytes: Int64(process.usage)).getReadableMemory(style: .memory)
+            ])
+        }
+
+        self.swapProcessesInitialized = true
     }
 }
