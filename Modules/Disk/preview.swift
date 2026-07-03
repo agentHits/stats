@@ -78,13 +78,24 @@ internal class Preview: PreviewWrapper {
     private var periodTotalValueField: ValueField?
     private var periodPeakReadValueField: ValueField?
     private var periodPeakWriteValueField: ValueField?
-    private var periodDataStateField: NSTextField?
+    private var periodCoverageField: NSTextField?
+    private var periodCoverageProgress: NSProgressIndicator?
+    private var periodTopSourceValueField: ValueField?
+    private var periodTimelineChart: DiskActivityTimelineChart?
     private var periodProcessTable: DiskActivityProcessTable?
+    private lazy var periodCoverageTimeFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .none
+        formatter.timeStyle = .short
+        return formatter
+    }()
 
     public init(_ module: ModuleType) {
         self.finder = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.Finder")
         
         super.init(type: module)
+
+        self.alignment = .width
         
         self.loadColors()
         self.activityPeriod = DiskActivityPeriod(
@@ -111,7 +122,11 @@ internal class Preview: PreviewWrapper {
         splitView.addArrangedSubview(PreferencesSection(title: localizedString("SMART"), [self.smartView()]))
         
         self.addArrangedSubview(splitView)
-        self.addArrangedSubview(PreferencesSection(title: localizedString("Activity by period"), [self.periodActivityView()]))
+        let periodActivitySection = self.periodActivitySection()
+        periodActivitySection.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        periodActivitySection.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
+        self.addArrangedSubview(periodActivitySection)
+        periodActivitySection.widthAnchor.constraint(equalTo: self.widthAnchor).isActive = true
         self.addArrangedSubview(NSView())
     }
     
@@ -133,9 +148,9 @@ internal class Preview: PreviewWrapper {
         view.heightAnchor.constraint(equalToConstant: 90).isActive = true
         view.edgeInsets = NSEdgeInsets(
             top: Constants.Settings.margin,
-            left: Constants.Settings.margin,
+            left: 0,
             bottom: Constants.Settings.margin,
-            right: Constants.Settings.margin
+            right: 0
         )
         view.spacing = Constants.Settings.margin
         
@@ -295,73 +310,175 @@ internal class Preview: PreviewWrapper {
         return view
     }
     
-    private func periodActivityView() -> NSView {
-        let view = NSStackView()
-        view.orientation = .vertical
-        view.distribution = .fill
-        view.spacing = Constants.Settings.margin
-        view.heightAnchor.constraint(equalToConstant: 238).isActive = true
-        view.edgeInsets = NSEdgeInsets(
-            top: Constants.Settings.margin,
-            left: Constants.Settings.margin,
-            bottom: Constants.Settings.margin,
-            right: Constants.Settings.margin
-        )
+    private func periodActivitySection() -> NSView {
+        let row = NSStackView()
+        row.orientation = .horizontal
+        row.distribution = .fill
+        row.alignment = .top
+        row.spacing = Constants.Settings.margin
+        row.translatesAutoresizingMaskIntoConstraints = false
 
+        let periodSection = self.periodActivityCard(
+            title: localizedString("Activity by period"),
+            headerAccessory: self.periodActivityHeaderControls(),
+            content: self.periodActivityView()
+        )
+        periodSection.setContentHuggingPriority(.required, for: .horizontal)
+        periodSection.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
+        let insightSection = self.periodActivityCard(
+            title: localizedString("Activity by time"),
+            content: self.periodActivityInsightView()
+        )
+        insightSection.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        insightSection.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
+        row.addArrangedSubview(periodSection)
+        row.addArrangedSubview(insightSection)
+
+        let compactPeriodWidth: CGFloat = 360
+        periodSection.widthAnchor.constraint(lessThanOrEqualToConstant: compactPeriodWidth).isActive = true
+        let periodWidth = periodSection.widthAnchor.constraint(equalToConstant: compactPeriodWidth)
+        periodWidth.priority = .defaultHigh
+        periodWidth.isActive = true
+        return row
+    }
+
+    private func periodActivityCard(title: String, headerAccessory: NSView? = nil, content: NSView) -> NSStackView {
+        let section = NSStackView()
+        section.orientation = .vertical
+        section.alignment = .width
+        section.distribution = .fill
+        section.spacing = 0
+        section.translatesAutoresizingMaskIntoConstraints = false
+
+        let header = NSStackView()
+        header.orientation = .horizontal
+        header.alignment = .centerY
+        header.distribution = .fill
+        header.spacing = Constants.Settings.margin/1.5
+        header.heightAnchor.constraint(equalToConstant: headerAccessory == nil ? 26 : 34).isActive = true
+
+        let space = NSView()
+        space.widthAnchor.constraint(equalToConstant: 4).isActive = true
+
+        let titleField = LabelField(title)
+        titleField.font = NSFont.systemFont(ofSize: 12, weight: .medium)
+        titleField.textColor = .labelColor
+        titleField.lineBreakMode = .byTruncatingTail
+        titleField.setContentHuggingPriority(.defaultHigh, for: .horizontal)
+        titleField.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
+        header.addArrangedSubview(space)
+        header.addArrangedSubview(titleField)
+        if let headerAccessory {
+            header.addArrangedSubview(headerAccessory)
+        }
+        header.addArrangedSubview(NSView())
+
+        let container = NSView()
+        container.translatesAutoresizingMaskIntoConstraints = false
+        container.wantsLayer = true
+        container.layer?.backgroundColor = NSColor.quaternaryLabelColor.withAlphaComponent(0.025).cgColor
+        container.layer?.cornerRadius = Constants.Settings.margin
+
+        content.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(content)
+        NSLayoutConstraint.activate([
+            content.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: Constants.Settings.margin),
+            content.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -Constants.Settings.margin),
+            content.topAnchor.constraint(equalTo: container.topAnchor, constant: Constants.Settings.margin/1.25),
+            content.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -Constants.Settings.margin/1.25)
+        ])
+
+        section.addArrangedSubview(header)
+        section.addArrangedSubview(container)
+        container.widthAnchor.constraint(equalTo: section.widthAnchor).isActive = true
+        return section
+    }
+
+    private func periodActivityHeaderControls() -> NSView {
         let controls = NSStackView()
         controls.orientation = .horizontal
         controls.alignment = .centerY
-        controls.spacing = Constants.Settings.margin
+        controls.spacing = Constants.Settings.margin/1.5
+        controls.translatesAutoresizingMaskIntoConstraints = false
+        controls.setContentHuggingPriority(.required, for: .horizontal)
+        controls.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
-        let periodLabel = LabelField("\(localizedString("Period")):")
-        periodLabel.font = .systemFont(ofSize: 11, weight: .medium)
         let periodSelect = selectView(
             action: #selector(self.changeActivityPeriod),
             items: DiskActivityPeriod.menuItems,
             selected: self.activityPeriod.rawValue
         )
-        periodSelect.widthAnchor.constraint(equalToConstant: 105).isActive = true
+        periodSelect.toolTip = localizedString("Period")
 
-        let sortLabel = LabelField("\(localizedString("Sort by")):")
-        sortLabel.font = .systemFont(ofSize: 11, weight: .medium)
         let sortSelect = selectView(
             action: #selector(self.changeActivitySort),
             items: DiskActivityProcessSort.menuItems,
             selected: self.activitySort.rawValue
         )
-        sortSelect.widthAnchor.constraint(equalToConstant: 105).isActive = true
+        sortSelect.toolTip = localizedString("Sort by")
 
-        self.periodDataStateField = LabelField("")
-        self.periodDataStateField?.textColor = .tertiaryLabelColor
-        self.periodDataStateField?.font = .systemFont(ofSize: 11, weight: .regular)
-
-        controls.addArrangedSubview(periodLabel)
-        controls.addArrangedSubview(periodSelect)
-        controls.addArrangedSubview(sortLabel)
-        controls.addArrangedSubview(sortSelect)
-        controls.addArrangedSubview(NSView())
-        if let field = self.periodDataStateField {
-            controls.addArrangedSubview(field)
+        [periodSelect, sortSelect].forEach { control in
+            control.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+            let preferredWidth = control.widthAnchor.constraint(equalToConstant: 84)
+            preferredWidth.priority = .defaultHigh
+            preferredWidth.isActive = true
+            control.widthAnchor.constraint(greaterThanOrEqualToConstant: 72).isActive = true
         }
+
+        controls.addArrangedSubview(periodSelect)
+        controls.addArrangedSubview(sortSelect)
+        return controls
+    }
+
+    private func periodActivityView() -> NSView {
+        let view = NSStackView()
+        view.orientation = .vertical
+        view.distribution = .fill
+        view.alignment = .width
+        view.translatesAutoresizingMaskIntoConstraints = false
+        view.spacing = Constants.Settings.margin
+        view.heightAnchor.constraint(equalToConstant: 266).isActive = true
+        view.edgeInsets = NSEdgeInsets(
+            top: Constants.Settings.margin,
+            left: 0,
+            bottom: Constants.Settings.margin,
+            right: 0
+        )
+
+        let coverageStatus = self.periodCoverageStatusView()
 
         let summary = NSStackView()
         summary.orientation = .horizontal
         summary.distribution = .fillEqually
+        summary.alignment = .width
+        summary.translatesAutoresizingMaskIntoConstraints = false
         summary.spacing = Constants.Settings.margin
+        summary.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
         let totals = NSStackView()
         totals.orientation = .vertical
+        totals.alignment = .width
+        totals.translatesAutoresizingMaskIntoConstraints = false
         totals.spacing = 2
+        totals.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         self.periodReadValueField = previewRow(totals, color: self.readColor, title: "\(localizedString("Read")):", value: "0 KB")
         self.periodWriteValueField = previewRow(totals, color: self.writeColor, title: "\(localizedString("Write")):", value: "0 KB")
         self.periodTotalValueField = previewRow(totals, title: "\(localizedString("Total")):", value: "0 KB")
 
         let peaks = NSStackView()
         peaks.orientation = .vertical
+        peaks.alignment = .width
+        peaks.translatesAutoresizingMaskIntoConstraints = false
         peaks.spacing = 2
+        peaks.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         self.periodPeakReadValueField = previewRow(peaks, color: self.readColor, title: "\(localizedString("Peak read")):", value: "0 KB/s")
         self.periodPeakWriteValueField = previewRow(peaks, color: self.writeColor, title: "\(localizedString("Peak write")):", value: "0 KB/s")
         peaks.addArrangedSubview(NSView())
+        self.makePeriodRowsCompressible(totals)
+        self.makePeriodRowsCompressible(peaks)
 
         summary.addArrangedSubview(totals)
         summary.addArrangedSubview(peaks)
@@ -369,16 +486,145 @@ internal class Preview: PreviewWrapper {
         let processTitle = LabelField(localizedString("Disk activity processes"))
         processTitle.font = .systemFont(ofSize: 11, weight: .semibold)
         let table = DiskActivityProcessTable()
+        table.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        table.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         self.periodProcessTable = table
 
-        view.addArrangedSubview(controls)
+        view.addArrangedSubview(coverageStatus)
         view.addArrangedSubview(summary)
         view.addArrangedSubview(processTitle)
         view.addArrangedSubview(table)
+        [coverageStatus, summary, processTitle, table].forEach { item in
+            item.translatesAutoresizingMaskIntoConstraints = false
+            item.widthAnchor.constraint(equalTo: view.widthAnchor).isActive = true
+        }
 
         self.refreshPeriodActivity()
 
         return view
+    }
+
+    private func makePeriodRowsCompressible(_ stack: NSStackView) {
+        stack.arrangedSubviews.forEach(self.makePeriodRowCompressible)
+    }
+
+    private func makePeriodRowCompressible(_ row: NSView) {
+        row.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        row.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        guard let rowStack = row as? NSStackView else { return }
+        rowStack.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        rowStack.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        rowStack.arrangedSubviews.forEach { item in
+            item.setContentHuggingPriority(.defaultLow, for: .horizontal)
+            item.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+            if let field = item as? NSTextField {
+                field.lineBreakMode = .byTruncatingTail
+                field.cell?.truncatesLastVisibleLine = true
+            }
+        }
+    }
+
+    private func periodCoverageStatusView() -> NSView {
+        let view = NSStackView()
+        view.orientation = .vertical
+        view.distribution = .fill
+        view.alignment = .width
+        view.spacing = 4
+        view.translatesAutoresizingMaskIntoConstraints = false
+
+        let progress = NSProgressIndicator()
+        progress.style = .bar
+        progress.isIndeterminate = false
+        progress.minValue = 0
+        progress.maxValue = 100
+        progress.doubleValue = 0
+        progress.controlSize = .small
+        progress.translatesAutoresizingMaskIntoConstraints = false
+        progress.heightAnchor.constraint(equalToConstant: 6).isActive = true
+        self.periodCoverageProgress = progress
+
+        let field = LabelField(localizedString("No activity data yet"))
+        field.font = .systemFont(ofSize: 11, weight: .medium)
+        field.textColor = .secondaryLabelColor
+        field.lineBreakMode = .byTruncatingTail
+        self.periodCoverageField = field
+
+        view.addArrangedSubview(progress)
+        view.addArrangedSubview(field)
+        return view
+    }
+
+    private func periodActivityInsightView() -> NSView {
+        let view = NSStackView()
+        view.orientation = .vertical
+        view.distribution = .fill
+        view.alignment = .width
+        view.translatesAutoresizingMaskIntoConstraints = false
+        view.spacing = Constants.Settings.margin
+        view.heightAnchor.constraint(equalToConstant: 266).isActive = true
+        view.edgeInsets = NSEdgeInsets(
+            top: Constants.Settings.margin,
+            left: 0,
+            bottom: Constants.Settings.margin,
+            right: 0
+        )
+
+        let topSource = previewRow(view, title: "\(localizedString("Top source")):", value: "-")
+        let topSourceRow = view.arrangedSubviews.last
+        topSource.lineBreakMode = .byTruncatingMiddle
+        topSource.cell?.truncatesLastVisibleLine = true
+        self.periodTopSourceValueField = topSource
+        if let topSourceRow {
+            self.makePeriodRowCompressible(topSourceRow)
+        }
+
+        let legend = NSStackView()
+        legend.orientation = .horizontal
+        legend.alignment = .centerY
+        legend.spacing = Constants.Settings.margin
+        legend.translatesAutoresizingMaskIntoConstraints = false
+        legend.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        legend.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        legend.addArrangedSubview(self.periodActivityLegend(color: self.readColor, title: localizedString("Read")))
+        legend.addArrangedSubview(self.periodActivityLegend(color: self.writeColor, title: localizedString("Write")))
+        legend.addArrangedSubview(NSView())
+
+        let chart = DiskActivityTimelineChart()
+        chart.heightAnchor.constraint(equalToConstant: 196).isActive = true
+        chart.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        chart.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        self.periodTimelineChart = chart
+
+        view.addArrangedSubview(legend)
+        view.addArrangedSubview(chart)
+        [topSourceRow, legend, chart].compactMap { $0 }.forEach { item in
+            item.translatesAutoresizingMaskIntoConstraints = false
+            item.widthAnchor.constraint(equalTo: view.widthAnchor).isActive = true
+        }
+
+        return view
+    }
+
+    private func periodActivityLegend(color: NSColor, title: String) -> NSView {
+        let item = NSStackView()
+        item.orientation = .horizontal
+        item.alignment = .centerY
+        item.spacing = 4
+
+        let swatch = NSView()
+        swatch.translatesAutoresizingMaskIntoConstraints = false
+        swatch.widthAnchor.constraint(equalToConstant: 8).isActive = true
+        swatch.heightAnchor.constraint(equalToConstant: 8).isActive = true
+        swatch.wantsLayer = true
+        swatch.layer?.backgroundColor = color.cgColor
+        swatch.layer?.cornerRadius = 2
+
+        let field = LabelField(title)
+        field.font = .systemFont(ofSize: 11, weight: .medium)
+
+        item.addArrangedSubview(swatch)
+        item.addArrangedSubview(field)
+        return item
     }
 
     internal func capacityCallback(_ value: Disks) {
@@ -516,8 +762,56 @@ internal class Preview: PreviewWrapper {
         self.periodTotalValueField?.stringValue = Units(bytes: summary.total).getReadableMemory()
         self.periodPeakReadValueField?.stringValue = Units(bytes: summary.peakRead).getReadableSpeed(base: self.base, unit: self.speedUnit)
         self.periodPeakWriteValueField?.stringValue = Units(bytes: summary.peakWrite).getReadableSpeed(base: self.base, unit: self.speedUnit)
-        self.periodDataStateField?.stringValue = summary.hasData ? "" : localizedString("No activity data yet")
+        self.updatePeriodCoverage(summary.coverage)
+        self.periodTimelineChart?.update(points: summary.timeline, readColor: self.readColor, writeColor: self.writeColor)
+        if let topProcess = summary.processes.first {
+            let share = String(format: "%.0f%%", topProcess.share * 100)
+            self.periodTopSourceValueField?.stringValue = "\(topProcess.name) · \(Units(bytes: topProcess.total).getReadableMemory()) · \(share)"
+            self.periodTopSourceValueField?.toolTip = [
+                topProcess.name,
+                "\(localizedString("Read")): \(Units(bytes: topProcess.read).getReadableMemory())",
+                "\(localizedString("Write")): \(Units(bytes: topProcess.write).getReadableMemory())"
+            ].joined(separator: "\n")
+        } else {
+            self.periodTopSourceValueField?.stringValue = "-"
+            self.periodTopSourceValueField?.toolTip = nil
+        }
         self.periodProcessTable?.setRows(summary.processes)
+    }
+
+    private func updatePeriodCoverage(_ coverage: DiskActivityCoverage) {
+        let percent = Int((coverage.coverageRatio * 100).rounded())
+        let title = self.periodCoverageTitle(for: coverage.state)
+        var parts = [title]
+
+        if coverage.state != .empty {
+            parts.append("\(percent)% \(localizedString("Activity period covered"))")
+            if let lastUpdatedAt = coverage.lastUpdatedAt {
+                let updated = self.periodCoverageTimeFormatter.string(from: Date(timeIntervalSince1970: lastUpdatedAt))
+                parts.append("\(localizedString("Activity updated at")) \(updated)")
+            }
+        }
+
+        let text = parts.joined(separator: " · ")
+        self.periodCoverageField?.stringValue = text
+        self.periodCoverageField?.toolTip = text
+        self.periodCoverageProgress?.isHidden = coverage.state == .empty
+        self.periodCoverageProgress?.doubleValue = Double(percent)
+    }
+
+    private func periodCoverageTitle(for state: DiskActivityDataState) -> String {
+        switch state {
+        case .ready:
+            return localizedString("Activity data is current")
+        case .collecting:
+            return localizedString("Activity data is collecting")
+        case .partial:
+            return localizedString("Activity data is partial")
+        case .stale:
+            return localizedString("Activity data is stale")
+        case .empty:
+            return localizedString("No activity data yet")
+        }
     }
 
     @objc private func changeActivityPeriod(_ sender: Any) {
@@ -700,6 +994,83 @@ internal class DiskRow {
     }
 }
 
+private class DiskActivityTimelineChart: NSView {
+    private var points: [DiskActivityTimelinePoint] = []
+    private var readColor: NSColor = .systemBlue
+    private var writeColor: NSColor = .systemRed
+
+    init() {
+        super.init(frame: .zero)
+        self.translatesAutoresizingMaskIntoConstraints = false
+        self.wantsLayer = true
+        self.canDrawSubviewsIntoLayer = true
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func update(points: [DiskActivityTimelinePoint], readColor: NSColor, writeColor: NSColor) {
+        self.points = points
+        self.readColor = readColor
+        self.writeColor = writeColor
+        self.needsDisplay = true
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+
+        let content = self.bounds.insetBy(dx: 2, dy: 4)
+        guard content.width > 1, content.height > 1 else { return }
+
+        NSColor.separatorColor.withAlphaComponent(0.25).setFill()
+        NSBezierPath(rect: NSRect(x: content.minX, y: content.minY, width: content.width, height: 1)).fill()
+
+        let maxTotal = self.points.map(\.total).max() ?? 0
+        guard maxTotal > 0 else {
+            let attrs: [NSAttributedString.Key: Any] = [
+                .font: NSFont.systemFont(ofSize: 11, weight: .regular),
+                .foregroundColor: NSColor.tertiaryLabelColor
+            ]
+            let value = localizedString("No activity data yet") as NSString
+            let size = value.size(withAttributes: attrs)
+            value.draw(
+                at: NSPoint(x: content.midX - size.width / 2, y: content.midY - size.height / 2),
+                withAttributes: attrs
+            )
+            return
+        }
+
+        let gap: CGFloat = 2
+        let barCount = max(1, self.points.count)
+        let availableWidth = max(1, content.width - CGFloat(barCount - 1) * gap)
+        let barWidth = max(1, availableWidth / CGFloat(barCount))
+
+        for (idx, point) in self.points.enumerated() where point.total > 0 {
+            let totalRatio = CGFloat(Double(point.total) / Double(maxTotal))
+            let totalHeight = max(1, content.height * totalRatio)
+            let readRatio = CGFloat(Double(point.read) / Double(point.total))
+            let readHeight = totalHeight * readRatio
+            let writeHeight = totalHeight - readHeight
+            let x = content.minX + CGFloat(idx) * (barWidth + gap)
+            var y = content.minY
+
+            if readHeight > 0 {
+                let rect = NSRect(x: x, y: y, width: barWidth, height: readHeight)
+                self.readColor.withAlphaComponent(0.85).setFill()
+                NSBezierPath(roundedRect: rect, xRadius: 2, yRadius: 2).fill()
+                y += readHeight
+            }
+
+            if writeHeight > 0 {
+                let rect = NSRect(x: x, y: y, width: barWidth, height: writeHeight)
+                self.writeColor.withAlphaComponent(0.85).setFill()
+                NSBezierPath(roundedRect: rect, xRadius: 2, yRadius: 2).fill()
+            }
+        }
+    }
+}
+
 private class DiskActivityProcessTable: NSStackView {
     private let maxRows: Int = 6
     private var rowViews: [DiskActivityProcessRow] = []
@@ -707,6 +1078,8 @@ private class DiskActivityProcessTable: NSStackView {
     init() {
         super.init(frame: .zero)
         self.orientation = .vertical
+        self.alignment = .width
+        self.distribution = .fill
         self.spacing = 2
         self.translatesAutoresizingMaskIntoConstraints = false
 
@@ -733,7 +1106,18 @@ private class DiskActivityProcessTable: NSStackView {
     }
 }
 
-private class DiskActivityProcessRow: NSGridView {
+private class DiskActivityProcessRow: NSView {
+    private static let headerFont = NSFont.systemFont(ofSize: 12, weight: .semibold)
+    private static let rowFont = NSFont.systemFont(ofSize: 12, weight: .medium)
+    private static let rowHeight: CGFloat = 20
+    private static let metricColumnWidth: CGFloat = 64
+    private static let shareColumnWidth: CGFloat = 40
+    private static let columnSpacing: CGFloat = 1
+
+    private let isHeader: Bool
+    private var share: Double = 0
+    private var shareColor: NSColor = .clear
+
     private let nameField = LabelField("-")
     private let readField = LabelField("-")
     private let writeField = LabelField("-")
@@ -741,27 +1125,51 @@ private class DiskActivityProcessRow: NSGridView {
     private let shareField = LabelField("-")
 
     init(header: Bool = false) {
+        self.isHeader = header
         super.init(frame: .zero)
-        self.rowSpacing = 0
-        self.columnSpacing = Constants.Settings.margin
-        self.yPlacement = .center
+        self.translatesAutoresizingMaskIntoConstraints = false
+        self.wantsLayer = true
+        self.heightAnchor.constraint(equalToConstant: Self.rowHeight).isActive = true
 
         [self.nameField, self.readField, self.writeField, self.totalField, self.shareField].forEach { field in
-            field.font = .systemFont(ofSize: 10, weight: header ? .semibold : .regular)
+            field.font = header ? Self.headerFont : Self.rowFont
             field.textColor = header ? .secondaryLabelColor : .labelColor
             field.lineBreakMode = .byTruncatingTail
+            field.translatesAutoresizingMaskIntoConstraints = false
+            field.setContentHuggingPriority(.defaultLow, for: .horizontal)
+            field.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         }
+        self.nameField.alignment = .left
+        self.nameField.lineBreakMode = .byTruncatingMiddle
+        self.nameField.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         self.readField.alignment = .right
         self.writeField.alignment = .right
         self.totalField.alignment = .right
         self.shareField.alignment = .right
 
-        self.addRow(with: [self.nameField, self.readField, self.writeField, self.totalField, self.shareField])
-        self.column(at: 0).xPlacement = .leading
-        self.column(at: 1).xPlacement = .trailing
-        self.column(at: 2).xPlacement = .trailing
-        self.column(at: 3).xPlacement = .trailing
-        self.column(at: 4).xPlacement = .trailing
+        [self.nameField, self.readField, self.writeField, self.totalField, self.shareField].forEach(self.addSubview)
+
+        NSLayoutConstraint.activate([
+            self.nameField.leadingAnchor.constraint(equalTo: self.leadingAnchor),
+            self.nameField.centerYAnchor.constraint(equalTo: self.centerYAnchor),
+
+            self.readField.leadingAnchor.constraint(equalTo: self.nameField.trailingAnchor, constant: Self.columnSpacing),
+            self.readField.widthAnchor.constraint(equalToConstant: Self.metricColumnWidth),
+            self.readField.centerYAnchor.constraint(equalTo: self.centerYAnchor),
+
+            self.writeField.leadingAnchor.constraint(equalTo: self.readField.trailingAnchor, constant: Self.columnSpacing),
+            self.writeField.widthAnchor.constraint(equalToConstant: Self.metricColumnWidth),
+            self.writeField.centerYAnchor.constraint(equalTo: self.centerYAnchor),
+
+            self.totalField.leadingAnchor.constraint(equalTo: self.writeField.trailingAnchor, constant: Self.columnSpacing),
+            self.totalField.widthAnchor.constraint(equalToConstant: Self.metricColumnWidth),
+            self.totalField.centerYAnchor.constraint(equalTo: self.centerYAnchor),
+
+            self.shareField.leadingAnchor.constraint(equalTo: self.totalField.trailingAnchor, constant: Self.columnSpacing),
+            self.shareField.widthAnchor.constraint(equalToConstant: Self.shareColumnWidth),
+            self.shareField.trailingAnchor.constraint(equalTo: self.trailingAnchor),
+            self.shareField.centerYAnchor.constraint(equalTo: self.centerYAnchor)
+        ])
     }
 
     required init?(coder: NSCoder) {
@@ -778,6 +1186,19 @@ private class DiskActivityProcessRow: NSGridView {
         return row
     }
 
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+
+        guard !self.isHeader, self.share > 0 else { return }
+
+        let shareWidth = CGFloat(max(0, min(1, self.share))) * self.bounds.width
+        guard shareWidth > 1 else { return }
+
+        let rect = NSRect(x: 0, y: 1, width: shareWidth, height: max(0, self.bounds.height - 2))
+        self.shareColor.withAlphaComponent(0.12).setFill()
+        NSBezierPath(roundedRect: rect, xRadius: 3, yRadius: 3).fill()
+    }
+
     func update(_ row: DiskActivityProcessSummary) {
         self.nameField.stringValue = row.name
         self.nameField.toolTip = row.name
@@ -785,7 +1206,10 @@ private class DiskActivityProcessRow: NSGridView {
         self.writeField.stringValue = Units(bytes: row.write).getReadableMemory()
         self.totalField.stringValue = Units(bytes: row.total).getReadableMemory()
         self.shareField.stringValue = String(format: "%.0f%%", row.share * 100)
+        self.share = row.share
+        self.shareColor = row.write >= row.read ? NSColor.systemRed : NSColor.systemBlue
         self.toolTip = "pid: \(row.pid)"
+        self.needsDisplay = true
     }
 
     func reset() {
@@ -793,7 +1217,9 @@ private class DiskActivityProcessRow: NSGridView {
             $0.stringValue = "-"
             $0.toolTip = nil
         }
+        self.share = 0
         self.toolTip = nil
+        self.needsDisplay = true
     }
 }
 

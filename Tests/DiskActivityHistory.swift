@@ -17,7 +17,7 @@ final class DiskActivityHistoryTests: XCTestCase {
         store.recordDisk(diskID: "external", read: 1_000, write: 2_000, at: now.addingTimeInterval(-60))
         store.recordDisk(diskID: "main", read: 300, write: 400, at: now.addingTimeInterval(-30))
 
-        let summary = store.summary(diskID: "main", period: .hour1, now: now)
+        let summary = store.summary(diskID: "main", period: .hour1, timelinePoints: 2, now: now)
 
         XCTAssertEqual(summary.read, 400)
         XCTAssertEqual(summary.write, 450)
@@ -25,6 +25,71 @@ final class DiskActivityHistoryTests: XCTestCase {
         XCTAssertEqual(summary.peakRead, 300)
         XCTAssertEqual(summary.peakWrite, 400)
         XCTAssertEqual(summary.diskSampleCount, 2)
+        XCTAssertEqual(summary.timeline.count, 2)
+        XCTAssertEqual(summary.timeline[0].total, 0)
+        XCTAssertEqual(summary.timeline[1].read, 400)
+        XCTAssertEqual(summary.timeline[1].write, 450)
+    }
+
+    func testDiskActivityCoverageIsEmptyWithoutObservedBuckets() throws {
+        let store = DiskActivityHistoryStore(persistenceURL: nil)
+        let now = Date(timeIntervalSince1970: 10_000)
+
+        let summary = store.summary(diskID: "main", period: .hour1, now: now)
+
+        XCTAssertEqual(summary.coverage.state, .empty)
+        XCTAssertFalse(summary.coverage.hasData)
+        XCTAssertFalse(summary.coverage.isComplete)
+        XCTAssertEqual(summary.coverage.coverageRatio, 0)
+        XCTAssertEqual(summary.coverage.actualBucketCount, 0)
+        XCTAssertEqual(summary.coverage.expectedBucketCount, 60)
+    }
+
+    func testDiskActivityCoverageCollectsFromZeroActivityBuckets() throws {
+        let store = DiskActivityHistoryStore(persistenceURL: nil)
+        let now = Date(timeIntervalSince1970: 10_000)
+
+        store.recordDisk(diskID: "main", read: 0, write: 0, at: now.addingTimeInterval(-120))
+        store.recordDisk(diskID: "main", read: 0, write: 0, at: now)
+
+        let summary = store.summary(diskID: "main", period: .hour1, now: now)
+
+        XCTAssertEqual(summary.read, 0)
+        XCTAssertEqual(summary.write, 0)
+        XCTAssertEqual(summary.diskSampleCount, 2)
+        XCTAssertEqual(summary.coverage.state, .collecting)
+        XCTAssertEqual(summary.coverage.actualBucketCount, 2)
+        XCTAssertEqual(summary.coverage.coverageRatio, Double(2) / Double(60), accuracy: 0.0001)
+    }
+
+    func testDiskActivityCoverageMarksOldPartialDataAsStale() throws {
+        let store = DiskActivityHistoryStore(persistenceURL: nil)
+        let now = Date(timeIntervalSince1970: 10_000)
+
+        store.recordDisk(diskID: "main", read: 10, write: 20, at: now.addingTimeInterval(-1_800))
+
+        let summary = store.summary(diskID: "main", period: .hour1, now: now)
+
+        XCTAssertEqual(summary.coverage.state, .stale)
+        XCTAssertEqual(summary.coverage.actualBucketCount, 1)
+        XCTAssertLessThan(summary.coverage.coverageRatio, 1)
+    }
+
+    func testDiskActivityCoverageIsReadyWhenRequestedPeriodIsObserved() throws {
+        let store = DiskActivityHistoryStore(persistenceURL: nil)
+        let now = Date(timeIntervalSince1970: 10_000)
+
+        for minute in 0..<60 {
+            store.recordDisk(diskID: "main", read: 0, write: 0, at: now.addingTimeInterval(-TimeInterval(minute * 60)))
+        }
+
+        let summary = store.summary(diskID: "main", period: .hour1, now: now)
+
+        XCTAssertEqual(summary.coverage.state, .ready)
+        XCTAssertTrue(summary.coverage.isComplete)
+        XCTAssertEqual(summary.coverage.actualBucketCount, 60)
+        XCTAssertEqual(summary.coverage.expectedBucketCount, 60)
+        XCTAssertEqual(summary.coverage.coverageRatio, 1, accuracy: 0.0001)
     }
 
     func testDiskActivitySummaryGroupsProcessesAndSortsByTotal() throws {

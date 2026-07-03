@@ -338,6 +338,8 @@
 "Power cycles" = "Numero di cicli"; // gemma4:31b
 "Power on hours" = "Ore di accensione"; // gemma4:31b
 "Activity by period" = "Activity by period";
+"Activity by time" = "Activity by time";
+"Top source" = "Top source";
 "Period" = "Period";
 "Sort by" = "Sort by";
 "1 hour" = "1 hour";
@@ -352,6 +354,12 @@
 "No activity data yet" = "No activity data yet";
 "Disk activity processes" = "Disk activity processes";
 "Share" = "Share";
+"Activity data is current" = "Data is current";
+"Activity data is collecting" = "Real data is collecting";
+"Activity data is partial" = "Real data is partial";
+"Activity data is stale" = "Data is stale";
+"Activity period covered" = "period covered";
+"Activity updated at" = "updated";
 
 // Sensors
 "Celsius" = "Celsius";

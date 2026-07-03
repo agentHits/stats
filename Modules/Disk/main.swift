@@ -276,6 +276,44 @@ public struct DiskActivityProcessSummary: Codable {
     public let share: Double
 }
 
+public struct DiskActivityTimelinePoint: Codable {
+    public let read: Int64
+    public let write: Int64
+
+    public var total: Int64 {
+        self.read + self.write
+    }
+}
+
+public enum DiskActivityDataState: String, Codable {
+    case ready
+    case collecting
+    case partial
+    case stale
+    case empty
+}
+
+public struct DiskActivityCoverage: Codable {
+    public let requestedStart: TimeInterval
+    public let requestedEnd: TimeInterval
+    public let coverageStart: TimeInterval?
+    public let coverageEnd: TimeInterval?
+    public let coveredDuration: TimeInterval
+    public let coverageRatio: Double
+    public let actualBucketCount: Int
+    public let expectedBucketCount: Int
+    public let lastUpdatedAt: TimeInterval?
+    public let state: DiskActivityDataState
+
+    public var hasData: Bool {
+        self.actualBucketCount != 0
+    }
+
+    public var isComplete: Bool {
+        self.state == .ready
+    }
+}
+
 public struct DiskActivitySummary: Codable {
     public let period: DiskActivityPeriod
     public let read: Int64
@@ -285,6 +323,8 @@ public struct DiskActivitySummary: Codable {
     public let peakWrite: Int64
     public let diskSampleCount: Int
     public let processSampleCount: Int
+    public let timeline: [DiskActivityTimelinePoint]
+    public let coverage: DiskActivityCoverage
     public let processes: [DiskActivityProcessSummary]
 
     public var hasData: Bool {
@@ -337,7 +377,6 @@ public final class DiskActivityHistoryStore {
     public func recordDisk(diskID: String, read: Int64, write: Int64, at date: Date = Date()) {
         let safeRead = max(0, read)
         let safeWrite = max(0, write)
-        guard safeRead != 0 || safeWrite != 0 else { return }
 
         self.queue.sync {
             let bucketTS = self.bucketStart(for: date)
@@ -401,10 +440,12 @@ public final class DiskActivityHistoryStore {
         period: DiskActivityPeriod,
         sort: DiskActivityProcessSort = .total,
         limit: Int = 6,
+        timelinePoints: Int = 24,
         now: Date = Date()
     ) -> DiskActivitySummary {
         self.queue.sync {
-            let minTS = now.timeIntervalSince1970 - period.interval
+            let nowTS = now.timeIntervalSince1970
+            let minTS = nowTS - period.interval
             let diskBuckets = self.snapshot.disk.filter { bucket in
                 bucket.ts >= minTS && (diskID == nil || bucket.diskID == diskID)
             }
@@ -414,6 +455,8 @@ public final class DiskActivityHistoryStore {
             let write = diskBuckets.reduce(Int64(0)) { $0 + $1.write }
             let peakRead = diskBuckets.map { $0.peakRead }.max() ?? 0
             let peakWrite = diskBuckets.map { $0.peakWrite }.max() ?? 0
+            let timeline = self.timeline(from: diskBuckets, startTS: minTS, endTS: nowTS, points: timelinePoints)
+            let coverage = self.coverage(from: diskBuckets, startTS: minTS, endTS: nowTS)
 
             var grouped: [String: DiskActivityProcessBucket] = [:]
             processBuckets.forEach { bucket in
@@ -466,6 +509,8 @@ public final class DiskActivityHistoryStore {
                 peakWrite: peakWrite,
                 diskSampleCount: diskBuckets.count,
                 processSampleCount: processBuckets.count,
+                timeline: timeline,
+                coverage: coverage,
                 processes: Array(rows.prefix(limit))
             )
         }
@@ -493,6 +538,66 @@ public final class DiskActivityHistoryStore {
 
     private func bucketStart(for date: Date) -> TimeInterval {
         floor(date.timeIntervalSince1970 / self.bucketSize) * self.bucketSize
+    }
+
+    private func timeline(
+        from buckets: [DiskActivityDiskBucket],
+        startTS: TimeInterval,
+        endTS: TimeInterval,
+        points requestedPoints: Int
+    ) -> [DiskActivityTimelinePoint] {
+        let count = max(1, requestedPoints)
+        let duration = max(1, endTS - startTS)
+        let step = duration / TimeInterval(count)
+        return (0..<count).map { idx in
+            let segmentStart = startTS + TimeInterval(idx) * step
+            let segmentEnd = idx == count - 1 ? endTS + self.bucketSize : segmentStart + step
+            let segment = buckets.filter { $0.ts >= segmentStart && $0.ts < segmentEnd }
+            return DiskActivityTimelinePoint(
+                read: segment.reduce(Int64(0)) { $0 + $1.read },
+                write: segment.reduce(Int64(0)) { $0 + $1.write }
+            )
+        }
+    }
+
+    private func coverage(
+        from buckets: [DiskActivityDiskBucket],
+        startTS: TimeInterval,
+        endTS: TimeInterval
+    ) -> DiskActivityCoverage {
+        let expectedBucketCount = max(1, Int(ceil(max(1, endTS - startTS) / self.bucketSize)))
+        let bucketTimes = Set(buckets.map(\.ts))
+        let actualBucketCount = min(bucketTimes.count, expectedBucketCount)
+        let coverageStart = bucketTimes.min()
+        let coverageEnd = bucketTimes.max()
+        let coverageRatio = min(1, Double(actualBucketCount) / Double(expectedBucketCount))
+        let coveredDuration = min(max(0, endTS - startTS), TimeInterval(actualBucketCount) * self.bucketSize)
+
+        let state: DiskActivityDataState
+        if actualBucketCount == 0 {
+            state = .empty
+        } else if coverageRatio >= 0.995 {
+            state = .ready
+        } else if let coverageEnd, endTS - coverageEnd > self.bucketSize * 2 {
+            state = .stale
+        } else if let coverageStart, coverageStart > startTS + self.bucketSize {
+            state = .collecting
+        } else {
+            state = .partial
+        }
+
+        return DiskActivityCoverage(
+            requestedStart: startTS,
+            requestedEnd: endTS,
+            coverageStart: coverageStart,
+            coverageEnd: coverageEnd,
+            coveredDuration: coveredDuration,
+            coverageRatio: coverageRatio,
+            actualBucketCount: actualBucketCount,
+            expectedBucketCount: expectedBucketCount,
+            lastUpdatedAt: coverageEnd,
+            state: state
+        )
     }
 
     private func pruneLocked(now: Date) {

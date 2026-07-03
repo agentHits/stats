@@ -338,6 +338,8 @@
 "Power cycles" = "Количество циклов";
 "Power on hours" = "Часы работы";
 "Activity by period" = "Активность за период";
+"Activity by time" = "Активность по времени";
+"Top source" = "Главный источник";
 "Period" = "Период";
 "Sort by" = "Сортировка";
 "1 hour" = "1 час";
@@ -352,6 +354,12 @@
 "No activity data yet" = "Пока нет данных активности";
 "Disk activity processes" = "Процессы с активностью диска";
 "Share" = "Доля";
+"Activity data is current" = "Данные актуальны";
+"Activity data is collecting" = "Реальные данные накапливаются";
+"Activity data is partial" = "Реальные данные частичные";
+"Activity data is stale" = "Данные устарели";
+"Activity period covered" = "периода покрыто";
+"Activity updated at" = "обновлено";
 
 // Sensors
 "Celsius" = "Цельсия";
