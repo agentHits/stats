@@ -352,6 +352,10 @@
 "Peak read" = "Peak read";
 "Peak write" = "Peak write";
 "No activity data yet" = "No activity data yet";
+"Activity data starts at app launch" = "Data since app launch";
+"Activity data fills gradually" = "Data since app launch; longer periods fill gradually";
+"Activity data waiting for samples" = "Data since app launch; waiting for disk activity";
+"Activity data waiting for fresh samples" = "Data since app launch; waiting for fresh samples";
 "Disk activity processes" = "Disk activity processes";
 "Share" = "Share";
 "Activity data is current" = "Data is current";

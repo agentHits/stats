@@ -352,6 +352,10 @@
 "Peak read" = "Пик чтения";
 "Peak write" = "Пик записи";
 "No activity data yet" = "Пока нет данных активности";
+"Activity data starts at app launch" = "Данные с момента запуска приложения";
+"Activity data fills gradually" = "Данные с момента запуска приложения; длинные периоды заполняются постепенно";
+"Activity data waiting for samples" = "Данные с момента запуска приложения; ожидаем активность диска";
+"Activity data waiting for fresh samples" = "Данные с момента запуска приложения; ожидаем свежие замеры";
 "Disk activity processes" = "Процессы с активностью диска";
 "Share" = "Доля";
 "Activity data is current" = "Данные актуальны";

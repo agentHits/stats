@@ -79,6 +79,7 @@ internal class Preview: PreviewWrapper {
     private var periodPeakReadValueField: ValueField?
     private var periodPeakWriteValueField: ValueField?
     private var periodCoverageField: NSTextField?
+    private var periodCoverageHintField: NSTextField?
     private var periodCoverageProgress: NSProgressIndicator?
     private var periodTopSourceValueField: ValueField?
     private var periodTimelineChart: DiskActivityTimelineChart?
@@ -313,7 +314,7 @@ internal class Preview: PreviewWrapper {
     private func periodActivitySection() -> NSView {
         let row = NSStackView()
         row.orientation = .horizontal
-        row.distribution = .fill
+        row.distribution = .fillEqually
         row.alignment = .top
         row.spacing = Constants.Settings.margin
         row.translatesAutoresizingMaskIntoConstraints = false
@@ -335,12 +336,6 @@ internal class Preview: PreviewWrapper {
 
         row.addArrangedSubview(periodSection)
         row.addArrangedSubview(insightSection)
-
-        let compactPeriodWidth: CGFloat = 360
-        periodSection.widthAnchor.constraint(lessThanOrEqualToConstant: compactPeriodWidth).isActive = true
-        let periodWidth = periodSection.widthAnchor.constraint(equalToConstant: compactPeriodWidth)
-        periodWidth.priority = .defaultHigh
-        periodWidth.isActive = true
         return row
     }
 
@@ -549,8 +544,15 @@ internal class Preview: PreviewWrapper {
         field.lineBreakMode = .byTruncatingTail
         self.periodCoverageField = field
 
+        let hintField = LabelField(localizedString("Activity data starts at app launch"))
+        hintField.font = .systemFont(ofSize: 10, weight: .regular)
+        hintField.textColor = .tertiaryLabelColor
+        hintField.lineBreakMode = .byTruncatingTail
+        self.periodCoverageHintField = hintField
+
         view.addArrangedSubview(progress)
         view.addArrangedSubview(field)
+        view.addArrangedSubview(hintField)
         return view
     }
 
@@ -795,6 +797,9 @@ internal class Preview: PreviewWrapper {
         let text = parts.joined(separator: " · ")
         self.periodCoverageField?.stringValue = text
         self.periodCoverageField?.toolTip = text
+        let hint = self.periodCoverageHint(for: coverage.state)
+        self.periodCoverageHintField?.stringValue = hint
+        self.periodCoverageHintField?.toolTip = hint
         self.periodCoverageProgress?.isHidden = coverage.state == .empty
         self.periodCoverageProgress?.doubleValue = Double(percent)
     }
@@ -811,6 +816,19 @@ internal class Preview: PreviewWrapper {
             return localizedString("Activity data is stale")
         case .empty:
             return localizedString("No activity data yet")
+        }
+    }
+
+    private func periodCoverageHint(for state: DiskActivityDataState) -> String {
+        switch state {
+        case .ready:
+            return localizedString("Activity data starts at app launch")
+        case .collecting, .partial:
+            return localizedString("Activity data fills gradually")
+        case .stale:
+            return localizedString("Activity data waiting for fresh samples")
+        case .empty:
+            return localizedString("Activity data waiting for samples")
         }
     }
 
