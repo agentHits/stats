@@ -6,8 +6,8 @@ APP_PATH = "$(BUILD_PATH)/$(APP).app"
 ZIP_PATH = "$(BUILD_PATH)/$(APP).zip"
 WIDGET_PATH = "$(BUILD_PATH)/$(APP).app/Contents/PlugIns/WidgetsExtension.appex"
 
-.SILENT: archive notarize sign verify prepare-dmg prepare-dSYM clean next-version check history disk monitoring-guard smc leveldb
-.PHONY: build archive notarize sign verify prepare-dmg prepare-dSYM clean next-version check history monitoring-guard open smc leveldb
+.SILENT: archive notarize sign verify prepare-dmg prepare-dSYM clean next-version check history disk monitoring-guard agenthits-local-install agenthits-local-install-check smc leveldb
+.PHONY: build archive notarize sign verify prepare-dmg prepare-dSYM clean next-version check history monitoring-guard agenthits-local-install agenthits-local-install-check open smc leveldb
 
 build: clean next-version archive notarize sign verify prepare-dmg prepare-dSYM open
 
@@ -130,6 +130,13 @@ history:
 monitoring-guard:
 	python3 Kit/scripts/passive_monitoring_guard.py --self-test
 	python3 Kit/scripts/passive_monitoring_guard.py
+
+agenthits-local-install:
+	test -n "$(APP_SRC)" || { echo "ERROR: APP_SRC=/path/to/Stats.app is required"; exit 1; }
+	Kit/scripts/agenthits_local_install.sh --source "$(APP_SRC)" $(AGENTHITS_INSTALL_ARGS)
+
+agenthits-local-install-check:
+	Kit/scripts/agenthits_local_install.sh --self-test
 
 open:
 	osascript -e 'display notification "Stats signed and ready for distribution" with title "Build the Stats"'
