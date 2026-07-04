@@ -17,6 +17,7 @@ public class DB {
     private var lldb: LLDB? = nil
     private let queue = DispatchQueue(label: "eu.exelban.db")
     private let ttl: Int = 60*60
+    private let persistenceDisabled: Bool
     
     public var _writeTS: [String: Date] = [:]
     public var writeTS: [String: Date] {
@@ -31,6 +32,9 @@ public class DB {
     }
     
     init() {
+        self.persistenceDisabled = Self.shouldDisablePersistence()
+        guard !self.persistenceDisabled else { return }
+
         let fileManager = FileManager.default
         let supportPath = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!.appendingPathComponent("Stats")
         let tmpPath = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("Stats")
@@ -66,16 +70,18 @@ public class DB {
     deinit {
         self.lldb?.close()
     }
-    
+
     public func setup<T: Codable>(_ type: T.Type, _ key: String) {
+        guard !self.persistenceDisabled else { return }
         self.clean(key)
         if let raw = self.lldb?.findOne(key), let value = try? JSONDecoder().decode(type, from: Data(raw.utf8)) {
             self.values[key] = value
         }
     }
-    
+
     public func insert(key: String, value: Codable, ts: Bool = true, force: Bool = false) {
         self.values[key] = value
+        guard !self.persistenceDisabled else { return }
         guard let blobData = try? JSONEncoder().encode(value), let str = String(data: blobData, encoding: .utf8) else { return }
         
         if ts {
@@ -93,6 +99,7 @@ public class DB {
     }
     
     private func clean(_ key: String) {
+        guard !self.persistenceDisabled else { return }
         guard let keys = self.lldb?.keys(key) as? [String] else { return }
         let maxLiveTS = Date().currentTimeSeconds() - self.ttl
         var toDeleteKeys: [String] = []
@@ -104,5 +111,10 @@ public class DB {
         }
         
         self.lldb?.deleteMany(toDeleteKeys)
+    }
+
+    private static func shouldDisablePersistence() -> Bool {
+        guard let bundleID = Bundle.main.bundleIdentifier else { return false }
+        return bundleID == "eu.exelban.Stats.AgentHits" || bundleID.hasSuffix(".AgentHits")
     }
 }

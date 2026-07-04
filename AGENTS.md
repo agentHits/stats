@@ -16,4 +16,5 @@
 - Never use `.agent-work/derived-data` for Xcode DerivedData or build artifacts. `.agent-work` is for lightweight local memory/traces only, not large compiler output.
 - If the user explicitly approves an Xcode build/test, use a dedicated no-index location such as `/Users/agent/Developer/DerivedData.noindex/<task-name>` and explain before running that the command will write build artifacts to disk.
 - After an approved heavy verification run, delete its build artifacts when the user asks for cleanup, and report the exact path removed.
+- When a fresh local AgentHits build is installed and becomes the active app, remove older Codex-created AgentHits build artifact directories under `/Users/agent/Developer/DerivedData.noindex` unless they are needed for the current debugging task. Keep only the current explicitly needed build output, and never delete arbitrary Xcode DerivedData or user-owned build directories.
 - Prefer low-impact verification by default: `git diff`, `git status`, `rg`, static guards, parser self-tests, and focused source inspection that do not generate large build outputs.

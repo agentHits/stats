@@ -184,6 +184,22 @@ def scan() -> list[Finding]:
     return findings
 
 
+def agenthits_db_persistence_guard() -> list[str]:
+    path = REPO_ROOT / "Kit/plugins/DB.swift"
+    try:
+        text = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return ["Kit/plugins/DB.swift is missing"]
+
+    required = [
+        "persistenceDisabled",
+        "shouldDisablePersistence",
+        ".AgentHits",
+        "guard !self.persistenceDisabled else { return }",
+    ]
+    return [f"Kit/plugins/DB.swift must keep AgentHits DB persistence disabled: missing `{token}`" for token in required if token not in text]
+
+
 def write_fixture(root: Path, rel: str, text: str) -> None:
     path = root / rel
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -293,6 +309,7 @@ def main() -> int:
         return self_test()
 
     findings = scan()
+    db_guard_failures = agenthits_db_persistence_guard()
     if findings:
         print("Passive monitoring guard failed.")
         print("Runtime history stores must stay in-memory and bounded by default.")
@@ -300,6 +317,12 @@ def main() -> int:
         for finding in findings:
             print(f"{finding.path}:{finding.line}: {finding.type_name}: forbidden `{finding.token}`")
             print(f"  {finding.source}")
+        return 1
+    if db_guard_failures:
+        print("Passive monitoring guard failed.")
+        print("AgentHits must not persist Reader runtime cache through LevelDB by default.\n")
+        for failure in db_guard_failures:
+            print(failure)
         return 1
 
     print("Passive monitoring guard passed: runtime history stores have no forbidden persistence patterns.")
