@@ -40,4 +40,23 @@ class BatteryTests: XCTestCase {
         XCTAssertEqual(processes.map { $0.name }, ["Telegram", "Codex (Renderer)"])
         XCTAssertEqual(processes.map { $0.usage }, [77.6, 34.5])
     }
+
+    func testProcessReaderParseProcessesRejectsEmptyAndMalformedRows() throws {
+        XCTAssertTrue(ProcessReader.parseProcesses("", limit: 2).isEmpty)
+        XCTAssertTrue(ProcessReader.parseProcesses("PID COMMAND POWER\nbad row", limit: 2).isEmpty)
+        XCTAssertTrue(ProcessReader.parseProcesses("777777 Telegram 10.0", limit: 0).isEmpty)
+    }
+
+    func testProcessReaderParseProcessesSortsAndLimitsLatestSample() throws {
+        let output = """
+        PID COMMAND POWER
+        111111 low 1.0
+        222222 high 9.0
+        333333 mid 5.0
+        """
+
+        let processes = ProcessReader.parseProcesses(output, limit: 2)
+
+        XCTAssertEqual(processes.map { $0.pid }, [222222, 333333])
+    }
 }

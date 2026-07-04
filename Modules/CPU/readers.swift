@@ -199,61 +199,57 @@ public class ProcessReader: Reader<[TopProcess]> {
             return
         }
         
-        let task = Process()
-        task.launchPath = "/bin/ps"
-        task.arguments = ["-Aceo pid,pcpu,comm", "-r"]
-        
-        let outputPipe = Pipe()
-        let errorPipe = Pipe()
-        
-        defer {
-            outputPipe.fileHandleForReading.closeFile()
-            errorPipe.fileHandleForReading.closeFile()
-        }
-        
-        task.standardOutput = outputPipe
-        task.standardError = errorPipe
-        
+        let output: String
         do {
-            try task.run()
+            output = try TopProcessCommandProvider.run(
+                "/bin/ps",
+                arguments: ["-Aceo", "pid,pcpu,comm", "-r"]
+            ).stdout
         } catch let err {
             error("error read ps: \(err.localizedDescription)", log: self.log)
             return
         }
-        
-        let outputData = outputPipe.fileHandleForReading.readDataToEndOfFile()
-        let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
-        let output = String(data: outputData, encoding: .utf8)
-        _ = String(data: errorData, encoding: .utf8)
-        guard let output, !output.isEmpty else { return }
-        
-        var index = 0
+
+        self.callback(Self.parseProcesses(output, limit: self.numberOfProcesses))
+    }
+
+    static public func parseProcesses(_ output: String, limit: Int) -> [TopProcess] {
+        guard limit > 0, !output.isEmpty else { return [] }
+
         var processes: [TopProcess] = []
         output.enumerateLines { (line, stop) in
-            if index != 0 {
-                let str = line.trimmingCharacters(in: .whitespaces)
-                let pidFind = str.findAndCrop(pattern: "^\\d+")
-                let usageFind = pidFind.remain.findAndCrop(pattern: "^[0-9,.]+ ")
-                let command = usageFind.remain.trimmingCharacters(in: .whitespaces)
-                let pid = Int(pidFind.cropped) ?? 0
-                let usage = Double(usageFind.cropped.replacingOccurrences(of: ",", with: ".")) ?? 0
-                
-                var name: String = command
-                if let app = NSRunningApplication(processIdentifier: pid_t(pid)), let n = app.localizedName {
-                    name = n
-                }
-                if command.contains("com.apple.Virtua") && name.contains("Docker") {
-                    name = "Docker"
-                }
-                
-                processes.append(TopProcess(pid: pid, name: name, usage: usage))
+            if let process = Self.parseProcess(line) {
+                processes.append(process)
             }
-            
-            if index == self.numberOfProcesses { stop = true }
-            index += 1
+            if processes.count == limit { stop = true }
         }
-        
-        self.callback(processes)
+
+        return processes
+    }
+
+    static public func parseProcess(_ raw: String) -> TopProcess? {
+        let str = raw.trimmingCharacters(in: .whitespaces)
+        let pidFind = str.findAndCrop(pattern: "^\\d+")
+        let usageFind = pidFind.remain.findAndCrop(pattern: "^[0-9,.]+ ")
+        let command = usageFind.remain.trimmingCharacters(in: .whitespaces)
+        let usageString = usageFind.cropped
+            .replacingOccurrences(of: ",", with: ".")
+            .trimmingCharacters(in: .whitespaces)
+        guard let pid = Int(pidFind.cropped),
+              let usage = Double(usageString),
+              !command.isEmpty else {
+            return nil
+        }
+
+        var name: String = command
+        if let app = NSRunningApplication(processIdentifier: pid_t(pid)), let n = app.localizedName {
+            name = n
+        }
+        if command.contains("com.apple.Virtua") && name.contains("Docker") {
+            name = "Docker"
+        }
+
+        return TopProcess(pid: pid, name: name, usage: usage)
     }
 }
 

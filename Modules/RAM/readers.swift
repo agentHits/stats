@@ -189,33 +189,18 @@ public class ProcessReader: Reader<[TopProcess]> {
             return
         }
         
-        let task = Process()
-        task.launchPath = "/bin/ps"
-        task.arguments = ["-axo", "user=,pid=,rss=,comm=", "-m"]
-        
-        let outputPipe = Pipe()
-        let errorPipe = Pipe()
-        
-        defer {
-            outputPipe.fileHandleForReading.closeFile()
-            errorPipe.fileHandleForReading.closeFile()
-        }
-        
-        task.standardOutput = outputPipe
-        task.standardError = errorPipe
-        
+        let output: String
         do {
-            try task.run()
+            output = try TopProcessCommandProvider.run(
+                "/bin/ps",
+                arguments: ["-axo", "user=,pid=,rss=,comm=", "-m"]
+            ).stdout
         } catch let err {
             error("ps(): \(err.localizedDescription)", log: self.log)
             return
         }
-        
-        let outputData = outputPipe.fileHandleForReading.readDataToEndOfFile()
-        let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
-        let output = String(data: outputData, encoding: .utf8)
-        _ = String(data: errorData, encoding: .utf8)
-        guard let output, !output.isEmpty else {
+
+        guard !output.isEmpty else {
             self.callback([])
             return
         }

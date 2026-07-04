@@ -66,6 +66,7 @@ open class Reader<T: Codable>: NSObject, ReaderInternal_p {
     
     private let module: ModuleType
     private var history: Bool
+    private let cache: Bool
     private var repeatTask: Repeater?
     private var locked: Bool = true
     private var initlizalized: Bool = false
@@ -94,6 +95,7 @@ open class Reader<T: Codable>: NSObject, ReaderInternal_p {
         self.preview = preview
         self.module = module
         self.history = history
+        self.cache = cache
         self.callbackHandler = callback
         
         super.init()
@@ -110,6 +112,7 @@ open class Reader<T: Codable>: NSObject, ReaderInternal_p {
     }
     
     deinit {
+        guard self.cache else { return }
         DB.shared.insert(key: "\(self.module.stringValue)@\(self.name)", value: self.value, ts: self.history)
     }
     
@@ -125,6 +128,7 @@ open class Reader<T: Codable>: NSObject, ReaderInternal_p {
         if let value {
             self.callbackHandler(value)
             SystemStats.shared.send(key: moduleKey, value: value)
+            guard self.cache else { return }
             if let ts = self.lastDBWrite, let interval = self.interval, Date().timeIntervalSince(ts) > interval * 10 {
                 DB.shared.insert(key: moduleKey, value: value, ts: self.history)
                 self.lastDBWrite = Date()
@@ -194,6 +198,7 @@ open class Reader<T: Codable>: NSObject, ReaderInternal_p {
     }
     
     public func save(_ value: T) {
+        guard self.cache else { return }
         DB.shared.insert(key: "\(self.module.stringValue)@\(self.name)", value: value, ts: self.history, force: true)
     }
     

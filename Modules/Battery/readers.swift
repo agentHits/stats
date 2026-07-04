@@ -205,30 +205,17 @@ public class ProcessReader: Reader<[TopProcess]> {
             return
         }
         
-        let task = Process()
-        task.launchPath = "/usr/bin/top"
-        task.arguments = ["-o", "power", "-l", "2", "-n", "\(self.numberOfProcesses)", "-stats", "pid,command,power"]
-        
-        let outputPipe = Pipe()
-        defer {
-            outputPipe.fileHandleForReading.closeFile()
-        }
-        task.standardOutput = outputPipe
-        
+        let output: String
         do {
-            try task.run()
+            output = try TopProcessCommandProvider.run(
+                "/usr/bin/top",
+                arguments: ["-o", "power", "-l", "2", "-n", "\(self.numberOfProcesses)", "-stats", "pid,command,power"]
+            ).stdout
         } catch let err {
             error("error read ps: \(err.localizedDescription)", log: self.log)
             return
         }
-        
-        let outputData = outputPipe.fileHandleForReading.readDataToEndOfFile()
-        if outputData.isEmpty {
-            return
-        }
-        
-        let output = String(data: outputData, encoding: .utf8)
-        guard let output, !output.isEmpty else { return }
+        guard !output.isEmpty else { return }
         
         self.callback(Self.parseProcesses(output, limit: self.numberOfProcesses))
     }

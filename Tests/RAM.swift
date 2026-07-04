@@ -122,6 +122,19 @@ class RAM: XCTestCase {
         XCTAssertEqual(process.owner, "agent")
     }
 
+    func testProcessReader_parseResidentProcessHandlesSpacesAndMalformedRows() throws {
+        let process = try XCTUnwrap(ProcessReader.parseResidentProcess("agent 999999 51200 GitHub Desktop Helper"))
+        XCTAssertEqual(process.pid, 999999)
+        XCTAssertEqual(process.name, "GitHub Desktop Helper")
+        XCTAssertEqual(process.usage, Double(51200 * 1024))
+        XCTAssertEqual(process.owner, "agent")
+
+        XCTAssertNil(ProcessReader.parseResidentProcess(""))
+        XCTAssertNil(ProcessReader.parseResidentProcess("agent not-a-pid 51200 Safari"))
+        XCTAssertNil(ProcessReader.parseResidentProcess("agent 999999 not-rss Safari"))
+        XCTAssertNil(ProcessReader.parseResidentProcess("agent 999999 51200"))
+    }
+
     func testTopProcessDecodesCachedRowsWithoutOwner() throws {
         let data = try XCTUnwrap(#"{"pid":1,"name":"cached","usage":1024}"#.data(using: .utf8))
         let process = try JSONDecoder().decode(TopProcess.self, from: data)

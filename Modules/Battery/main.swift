@@ -71,7 +71,7 @@ public class Battery: Module {
         self.usageReader = UsageReader(.battery) { [weak self] value in
             self?.usageCallback(value)
         }
-        self.processReader = ProcessReader(.battery) { [weak self] value in
+        self.processReader = ProcessReader(.battery, cache: false) { [weak self] value in
             if let list = value {
                 self?.popupView.processCallback(list)
             }
