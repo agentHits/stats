@@ -14,7 +14,7 @@ import Darwin
 import Kit
 @testable import RAM
 
-class RAM: XCTestCase {
+final class RAMTests: XCTestCase {
     func testProcessReader_parseProcess() throws {
         var process = ProcessReader.parseProcess("3127  lldb-rpc-server  611M")
         XCTAssertEqual(process.pid, 3127)

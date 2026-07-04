@@ -191,6 +191,10 @@
 		5D0D15C22FBA000100000001 /* DiskActivityHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D0D15C12FBA000100000001 /* DiskActivityHistory.swift */; };
 		5D0D16C22FBB000100000001 /* Battery.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D0D16C12FBB000100000001 /* Battery.swift */; };
 		5D0D17C22FBC000100000001 /* CPU.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D0D17C12FBC000100000001 /* CPU.swift */; };
+		5D0D18C22FBD000100000001 /* SettingsLayoutSmoke.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D0D18C12FBD000100000001 /* SettingsLayoutSmoke.swift */; };
+		5D0D19C22FBD000100000001 /* DiskSettingsLayoutSmoke.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D0D19C12FBD000100000001 /* DiskSettingsLayoutSmoke.swift */; };
+		5D0D1AC22FBD000100000001 /* RAMSettingsLayoutSmoke.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D0D1AC12FBD000100000001 /* RAMSettingsLayoutSmoke.swift */; };
+		5D0D1BC22FBD000100000001 /* BatterySettingsLayoutSmoke.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D0D1BC12FBD000100000001 /* BatterySettingsLayoutSmoke.swift */; };
 		9AB14B77248CEF3500DC6731 /* config.plist in Resources */ = {isa = PBXBuildFile; fileRef = 9AF9EE192464A7B3005D2270 /* config.plist */; };
 		9AB14B78248CEF3B00DC6731 /* config.plist in Resources */ = {isa = PBXBuildFile; fileRef = 9AF9EE12246492E8005D2270 /* config.plist */; };
 		9AB14B79248CEF4100DC6731 /* config.plist in Resources */ = {isa = PBXBuildFile; fileRef = 9A3E17DC247A94C300449CD1 /* config.plist */; };
@@ -741,6 +745,10 @@
 		5D0D15C12FBA000100000001 /* DiskActivityHistory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiskActivityHistory.swift; sourceTree = "<group>"; };
 		5D0D16C12FBB000100000001 /* Battery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Battery.swift; sourceTree = "<group>"; };
 		5D0D17C12FBC000100000001 /* CPU.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CPU.swift; sourceTree = "<group>"; };
+		5D0D18C12FBD000100000001 /* SettingsLayoutSmoke.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsLayoutSmoke.swift; sourceTree = "<group>"; };
+		5D0D19C12FBD000100000001 /* DiskSettingsLayoutSmoke.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiskSettingsLayoutSmoke.swift; sourceTree = "<group>"; };
+		5D0D1AC12FBD000100000001 /* RAMSettingsLayoutSmoke.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RAMSettingsLayoutSmoke.swift; sourceTree = "<group>"; };
+		5D0D1BC12FBD000100000001 /* BatterySettingsLayoutSmoke.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BatterySettingsLayoutSmoke.swift; sourceTree = "<group>"; };
 		9AB6D03826447CAA003215A5 /* reader.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = reader.m; sourceTree = "<group>"; };
 		9AB7FD7B246B48DB00387FDA /* settings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = settings.swift; sourceTree = "<group>"; };
 		9ABD6F7528561472009B8BC1 /* el */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = el; path = el.lproj/Localizable.strings; sourceTree = "<group>"; };
@@ -1305,6 +1313,10 @@
 				5D0D15C12FBA000100000001 /* DiskActivityHistory.swift */,
 				5D0D16C12FBB000100000001 /* Battery.swift */,
 				5D0D17C12FBC000100000001 /* CPU.swift */,
+				5D0D18C12FBD000100000001 /* SettingsLayoutSmoke.swift */,
+				5D0D19C12FBD000100000001 /* DiskSettingsLayoutSmoke.swift */,
+				5D0D1AC12FBD000100000001 /* RAMSettingsLayoutSmoke.swift */,
+				5D0D1BC12FBD000100000001 /* BatterySettingsLayoutSmoke.swift */,
 			);
 			path = Tests;
 			sourceTree = "<group>";
@@ -2347,6 +2359,10 @@
 				5D0D15C22FBA000100000001 /* DiskActivityHistory.swift in Sources */,
 				5D0D16C22FBB000100000001 /* Battery.swift in Sources */,
 				5D0D17C22FBC000100000001 /* CPU.swift in Sources */,
+				5D0D18C22FBD000100000001 /* SettingsLayoutSmoke.swift in Sources */,
+				5D0D19C22FBD000100000001 /* DiskSettingsLayoutSmoke.swift in Sources */,
+				5D0D1AC22FBD000100000001 /* RAMSettingsLayoutSmoke.swift in Sources */,
+				5D0D1BC22FBD000100000001 /* BatterySettingsLayoutSmoke.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
