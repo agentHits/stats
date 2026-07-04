@@ -361,18 +361,11 @@ public final class DiskActivityHistoryStore {
     private let queue = DispatchQueue(label: "eu.exelban.Stats.Disk.ActivityHistory")
     private let bucketSize: TimeInterval = 60
     private let retention: TimeInterval = DiskActivityPeriod.day7.interval
-    private let persistenceURL: URL?
+    private let maxProcessesPerRead = 24
+    private let maxProcessesPerBucket = 24
     private var snapshot = DiskActivityHistorySnapshot()
-    private var lastSave: Date?
 
-    public convenience init() {
-        self.init(persistenceURL: DiskActivityHistoryStore.defaultPersistenceURL())
-    }
-
-    public init(persistenceURL: URL?) {
-        self.persistenceURL = persistenceURL
-        self.snapshot = Self.load(from: persistenceURL)
-    }
+    public init(persistenceURL _: URL? = nil) {}
 
     public func recordDisk(diskID: String, read: Int64, write: Int64, at date: Date = Date()) {
         let safeRead = max(0, read)
@@ -396,7 +389,6 @@ public final class DiskActivityHistoryStore {
                 ))
             }
             self.pruneLocked(now: date)
-            self.saveIfNeededLocked(now: date)
         }
     }
 
@@ -405,7 +397,17 @@ public final class DiskActivityHistoryStore {
     }
 
     public func recordProcesses(_ processes: [Disk_process], at date: Date = Date()) {
-        let active = processes.filter { $0.read > 0 || $0.write > 0 }
+        let active = processes
+            .filter { $0.read > 0 || $0.write > 0 }
+            .sorted { lhs, rhs in
+                let lhsTotal = Int64(max(0, lhs.read)) + Int64(max(0, lhs.write))
+                let rhsTotal = Int64(max(0, rhs.read)) + Int64(max(0, rhs.write))
+                if lhsTotal == rhsTotal {
+                    return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
+                }
+                return lhsTotal > rhsTotal
+            }
+            .prefix(self.maxProcessesPerRead)
         guard !active.isEmpty else { return }
 
         self.queue.sync {
@@ -417,8 +419,6 @@ public final class DiskActivityHistoryStore {
                 if let idx = self.snapshot.processes.firstIndex(where: { $0.ts == bucketTS && $0.identity == identity }) {
                     self.snapshot.processes[idx].read += safeRead
                     self.snapshot.processes[idx].write += safeWrite
-                    self.snapshot.processes[idx].pid = process.pid
-                    self.snapshot.processes[idx].name = process.name
                 } else {
                     self.snapshot.processes.append(DiskActivityProcessBucket(
                         ts: bucketTS,
@@ -431,7 +431,7 @@ public final class DiskActivityHistoryStore {
                 }
             }
             self.pruneLocked(now: date)
-            self.saveIfNeededLocked(now: date)
+            self.trimProcessBucketLocked(bucketTS)
         }
     }
 
@@ -519,15 +519,10 @@ public final class DiskActivityHistoryStore {
     public func prune(now: Date = Date()) {
         self.queue.sync {
             self.pruneLocked(now: now)
-            self.saveLocked()
         }
     }
 
-    public func flush() {
-        self.queue.sync {
-            self.saveLocked()
-        }
-    }
+    public func flush() {}
 
     private func identity(for process: Disk_process) -> String {
         if let bundle = process.bundleIdentifier, !bundle.isEmpty {
@@ -606,35 +601,24 @@ public final class DiskActivityHistoryStore {
         self.snapshot.processes.removeAll { $0.ts < minTS }
     }
 
-    private func saveIfNeededLocked(now: Date) {
-        guard let lastSave else {
-            self.saveLocked()
-            return
-        }
-        if now.timeIntervalSince(lastSave) >= 30 {
-            self.saveLocked()
-        }
-    }
+    private func trimProcessBucketLocked(_ bucketTS: TimeInterval) {
+        let bucketIndexes = self.snapshot.processes.indices.filter { self.snapshot.processes[$0].ts == bucketTS }
+        guard bucketIndexes.count > self.maxProcessesPerBucket else { return }
 
-    private func saveLocked() {
-        guard let url = self.persistenceURL else { return }
-        guard let data = try? JSONEncoder().encode(self.snapshot) else { return }
-        try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try? data.write(to: url, options: .atomic)
-        self.lastSave = Date()
-    }
+        let keep = Set(bucketIndexes.sorted { lhs, rhs in
+            let lhsBucket = self.snapshot.processes[lhs]
+            let rhsBucket = self.snapshot.processes[rhs]
+            let lhsTotal = lhsBucket.read + lhsBucket.write
+            let rhsTotal = rhsBucket.read + rhsBucket.write
+            if lhsTotal == rhsTotal {
+                return lhsBucket.name.localizedCaseInsensitiveCompare(rhsBucket.name) == .orderedAscending
+            }
+            return lhsTotal > rhsTotal
+        }.prefix(self.maxProcessesPerBucket))
 
-    private static func defaultPersistenceURL() -> URL? {
-        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
-            .appendingPathComponent("Stats")
-            .appendingPathComponent("disk-activity-history.json")
-    }
-
-    private static func load(from url: URL?) -> DiskActivityHistorySnapshot {
-        guard let url, let data = try? Data(contentsOf: url) else {
-            return DiskActivityHistorySnapshot()
+        self.snapshot.processes = self.snapshot.processes.enumerated().compactMap { idx, bucket in
+            bucket.ts == bucketTS && !keep.contains(idx) ? nil : bucket
         }
-        return (try? JSONDecoder().decode(DiskActivityHistorySnapshot.self, from: data)) ?? DiskActivityHistorySnapshot()
     }
 }
 
@@ -713,10 +697,6 @@ public class Disk: Module {
         self.setReaders([self.capacityReader, self.activityReader, self.processReader])
     }
 
-    public override func willTerminate() {
-        DiskActivityHistoryStore.shared.flush()
-    }
-    
     private func capacityCallback(_ value: Disks) {
         guard self.enabled else { return }
         

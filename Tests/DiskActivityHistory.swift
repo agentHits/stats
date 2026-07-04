@@ -133,6 +133,37 @@ final class DiskActivityHistoryTests: XCTestCase {
         XCTAssertEqual(writeSummary.processes.map(\.name), ["Writer", "Mixed"])
     }
 
+    func testDiskActivityProcessHistoryIsBoundedInMemoryPerBucket() throws {
+        let store = DiskActivityHistoryStore(persistenceURL: nil)
+        let now = Date(timeIntervalSince1970: 10_000)
+        let processes = (0..<40).map { idx in
+            Disk_process(pid: 1_000 + idx, name: "Process \(idx)", read: idx, write: idx)
+        }
+
+        store.recordProcesses(processes, at: now)
+
+        let summary = store.summary(diskID: nil, period: .hour1, sort: .total, limit: 100, now: now)
+
+        XCTAssertEqual(summary.processes.count, 24)
+        XCTAssertEqual(summary.processes.first?.name, "Process 39")
+        XCTAssertFalse(summary.processes.contains(where: { $0.name == "Process 0" }))
+    }
+
+    func testDiskActivityHistoryDoesNotCreatePersistenceFile() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("stats-disk-activity-\(UUID().uuidString)")
+            .appendingPathExtension("json")
+        let store = DiskActivityHistoryStore(persistenceURL: url)
+        let now = Date(timeIntervalSince1970: 10_000)
+
+        store.recordDisk(diskID: "main", read: 100, write: 200, at: now)
+        store.recordProcesses([Disk_process(pid: 100, name: "Writer", read: 10, write: 20)], at: now)
+        store.prune(now: now)
+        store.flush()
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: url.path))
+    }
+
     func testDiskActivityRetentionDropsRowsOlderThanSevenDays() throws {
         let store = DiskActivityHistoryStore(persistenceURL: nil)
         let now = Date(timeIntervalSince1970: 1_000_000)
