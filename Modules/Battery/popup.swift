@@ -14,6 +14,7 @@ import Kit
 
 internal class Popup: PopupWrapper {
     private let dashboardHeight: CGFloat = 160
+    private let processHeight: CGFloat = 22
     
     private var dashboardBatteryView: BatteryView = BatteryView()
     private var dashboardBatteryStatus: BatteryStatus = BatteryStatus()
@@ -42,14 +43,19 @@ internal class Popup: PopupWrapper {
     private var processesView: NSView? = nil
     private var processes: ProcessesView? = nil
     private var processesInitialized: Bool = false
+    private var renderedProcessCount: Int = 8
+    private var latestTopProcesses: [TopProcess] = []
     
     private let usageCache = PopupCache<Battery_Usage>()
     
     private var numberOfProcesses: Int {
         Store.shared.int(key: "\(self.title)_processes", defaultValue: 8)
     }
+    private var processListEnabled: Bool {
+        self.numberOfProcesses != 0
+    }
     private var processesHeight: CGFloat {
-        (Constants.Popup.processHeight*CGFloat(self.numberOfProcesses)) + (self.numberOfProcesses == 0 ? 0 : Constants.Popup.separatorHeight + 22)
+        self.processesHeight(for: self.renderedProcessCount)
     }
     private var timeFormat: String {
         Store.shared.string(key: "\(self.title)_timeFormat", defaultValue: "short")
@@ -60,6 +66,7 @@ internal class Popup: PopupWrapper {
         
         self.spacing = 0
         self.orientation = .vertical
+        self.renderedProcessCount = self.processListEnabled ? self.numberOfProcesses : 0
         
         self.addArrangedSubview(self.initDashboard())
         self.addArrangedSubview(self.initDetails())
@@ -75,6 +82,9 @@ internal class Popup: PopupWrapper {
     
     public override func appear() {
         self.replay(self.usageCache, render: self.renderUsage)
+        if !self.latestTopProcesses.isEmpty {
+            self.renderProcessList(self.visibleTopProcesses(from: self.latestTopProcesses))
+        }
     }
     
     public override func disappear() {
@@ -83,11 +93,11 @@ internal class Popup: PopupWrapper {
     
     private func recalculateHeight() {
         var h: CGFloat = 0
-        self.arrangedSubviews.forEach { v in
-            if let v = v as? NSStackView {
-                h += v.arrangedSubviews.map({ $0.fittingSize.height }).reduce(0, +)
-            } else {
-                h += v.fittingSize.height
+        self.arrangedSubviews.forEach { view in
+            if view.bounds.height > 0 {
+                h += view.bounds.height
+            } else if let stackView = view as? NSStackView {
+                h += stackView.arrangedSubviews.map { $0.bounds.height + stackView.spacing }.reduce(0, +)
             }
         }
         if self.frame.size.height != h {
@@ -147,6 +157,37 @@ internal class Popup: PopupWrapper {
         
         return view
     }
+
+    private func valueRow(_ view: NSStackView, title: String, value: String) -> (LabelField, ValueField) {
+        let row = NSStackView(frame: NSRect(x: 0, y: 0, width: self.frame.width, height: 22))
+        row.heightAnchor.constraint(equalToConstant: 22).isActive = true
+        row.orientation = .horizontal
+        row.distribution = .fill
+        row.spacing = 6
+        row.edgeInsets = NSEdgeInsets(top: 0, left: 0, bottom: 0, right: 4)
+
+        let label = LabelField(title)
+        label.font = NSFont.systemFont(ofSize: 12, weight: .regular)
+        label.setContentHuggingPriority(.required, for: .horizontal)
+        label.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
+
+        let spacer = NSView()
+        spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        spacer.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
+        let valueField = ValueField(value)
+        valueField.font = NSFont.systemFont(ofSize: 13, weight: .regular)
+        valueField.setContentHuggingPriority(.required, for: .horizontal)
+        valueField.setContentCompressionResistancePriority(.required, for: .horizontal)
+
+        row.addArrangedSubview(label)
+        row.addArrangedSubview(spacer)
+        row.addArrangedSubview(valueField)
+        view.addArrangedSubview(row)
+        row.widthAnchor.constraint(equalTo: view.widthAnchor).isActive = true
+
+        return (label, valueField)
+    }
     
     private func initDetails() -> NSView {
         let view = NSStackView(frame: NSRect(x: 0, y: 0, width: self.frame.width, height: 0))
@@ -154,15 +195,15 @@ internal class Popup: PopupWrapper {
         view.spacing = 0
         view.addArrangedSubview(SeparatorView(label: localizedString("Details")))
         
-        self.sourceField = popupRow(view, title: "\(localizedString("Source")):", value: localizedString("Unknown")).1
+        self.sourceField = self.valueRow(view, title: "\(localizedString("Source")):", value: localizedString("Unknown")).1
         
-        let time = popupRow(view, title: "\(localizedString("Time to discharge")):", value: localizedString("Unknown"))
+        let time = self.valueRow(view, title: "\(localizedString("Time to discharge")):", value: localizedString("Unknown"))
         self.timeLabelField = time.0
         self.timeField = time.1
         
-        self.powerField = popupRow(view, title: "\(localizedString("Power")):", value: "0 W").1
-        self.currentField = popupRow(view, title: "\(localizedString("Current")):", value: "0 mA").1
-        self.voltageField = popupRow(view, title: "\(localizedString("Voltage")):", value: "0 V").1
+        self.powerField = self.valueRow(view, title: "\(localizedString("Power")):", value: "0 W").1
+        self.currentField = self.valueRow(view, title: "\(localizedString("Current")):", value: "0 mA").1
+        self.voltageField = self.valueRow(view, title: "\(localizedString("Voltage")):", value: "0 V").1
         
         return view
     }
@@ -243,9 +284,9 @@ internal class Popup: PopupWrapper {
         
         view.addArrangedSubview(health)
         
-        self.healthField = popupRow(view, title: "\(localizedString("Health")):", value: "").1
-        self.cyclesField = popupRow(view, title: "\(localizedString("Cycles")):", value: "").1
-        self.temperatureField = popupRow(view, title: "\(localizedString("Temperature")):", value: "").1
+        self.healthField = self.valueRow(view, title: "\(localizedString("Health")):", value: "").1
+        self.cyclesField = self.valueRow(view, title: "\(localizedString("Cycles")):", value: "").1
+        self.temperatureField = self.valueRow(view, title: "\(localizedString("Temperature")):", value: "").1
         
         return view
     }
@@ -257,7 +298,7 @@ internal class Popup: PopupWrapper {
         view.addArrangedSubview(SeparatorView(label: localizedString("Power adapter")))
         
         self.chargingStateField = popupBadgeRow(view, title: "\(localizedString("Is charging")):", ok: "Yes", notOk: "No").1
-        self.adapterPowerField = popupRow(view, title: "\(localizedString("Power")):", value: "").1
+        self.adapterPowerField = self.valueRow(view, title: "\(localizedString("Power")):", value: "").1
         
         self.adapterView = view
         
@@ -265,23 +306,57 @@ internal class Popup: PopupWrapper {
     }
     
     private func initProcesses() -> NSView {
-        if self.numberOfProcesses == 0 { return NSView() }
+        if self.renderedProcessCount == 0 { return NSView() }
         
-        let view: NSView = NSView(frame: NSRect(x: 0, y: 0, width: self.frame.width, height: self.processesHeight))
+        let view = NSStackView(frame: NSRect(x: 0, y: 0, width: self.frame.width, height: self.processesHeight))
         view.heightAnchor.constraint(equalToConstant: view.bounds.height).isActive = true
-        let separator = separatorView(localizedString("Top processes"), origin: NSPoint(x: 0, y: self.processesHeight-Constants.Popup.separatorHeight), width: self.frame.width)
+        view.orientation = .vertical
+        view.spacing = 0
+
         let container: ProcessesView = ProcessesView(
-            frame: NSRect(x: 0, y: 0, width: self.frame.width, height: separator.frame.origin.y),
+            frame: NSRect(
+                x: 0,
+                y: 0,
+                width: self.frame.width,
+                height: self.processHeight * CGFloat(self.renderedProcessCount + 1)
+            ),
             values: [(localizedString("Usage"), nil)],
-            n: self.numberOfProcesses
+            n: self.renderedProcessCount
         )
         self.processes = container
         
-        view.addSubview(separator)
-        view.addSubview(container)
+        view.addArrangedSubview(SeparatorView(label: localizedString("Top processes")))
+        view.addArrangedSubview(container)
+        container.widthAnchor.constraint(equalTo: view.widthAnchor).isActive = true
         
         self.processesView = view
         return view
+    }
+
+    private func visibleTopProcesses(from list: [TopProcess]) -> [TopProcess] {
+        guard self.processListEnabled else { return [] }
+        return Array(list.prefix(self.numberOfProcesses))
+    }
+
+    private func processesHeight(for count: Int) -> CGFloat {
+        (self.processHeight * CGFloat(count)) + (count == 0 ? 0 : Constants.Popup.separatorHeight + self.processHeight)
+    }
+
+    private func rebuildProcesses(count: Int) {
+        guard self.renderedProcessCount != count || self.processes == nil else { return }
+
+        self.renderedProcessCount = count
+
+        if let view = self.processesView {
+            self.removeArrangedSubview(view)
+            view.removeFromSuperview()
+        }
+        self.processesView = nil
+        self.processes = nil
+        self.addArrangedSubview(self.initProcesses())
+        self.processesInitialized = false
+
+        self.recalculateHeight()
     }
     
     public func usageCallback(_ value: Battery_Usage) {
@@ -356,31 +431,51 @@ internal class Popup: PopupWrapper {
     
     public func processCallback(_ list: [TopProcess]) {
         DispatchQueue.main.async(execute: {
-            if !(self.window?.isVisible ?? false) && self.processesInitialized {
-                return
-            }
-            let list = list.map { $0 }
-            if list.count != self.processes?.count { self.processes?.clear() }
-            
-            for i in 0..<list.count {
-                let process = list[i]
-                self.processes?.set(i, process, ["\(process.usage)%"])
-            }
-            
-            self.processesInitialized = true
+            self.latestTopProcesses = list
+            self.renderProcessList(self.visibleTopProcesses(from: list))
         })
+    }
+
+    private func renderProcessList(_ list: [TopProcess]) {
+        guard self.processListEnabled else {
+            self.rebuildProcesses(count: 0)
+            self.processesInitialized = true
+            return
+        }
+
+        guard !list.isEmpty else {
+            if self.renderedProcessCount != self.numberOfProcesses || self.processes == nil {
+                self.rebuildProcesses(count: self.numberOfProcesses)
+            }
+            self.processes?.clear()
+            self.processesInitialized = true
+            return
+        }
+
+        if list.count != self.processes?.count {
+            self.rebuildProcesses(count: list.count)
+        } else {
+            self.processes?.clear()
+        }
+            
+        for i in 0..<list.count {
+            let process = list[i]
+            self.processes?.set(i, process, ["\(process.usage.roundTo(decimalPlaces: 1))%"])
+        }
+            
+        self.processesInitialized = true
     }
     
     public func numberOfProcessesUpdated() {
-        if self.processes?.count == self.numberOfProcesses { return }
-        
         DispatchQueue.main.async(execute: {
-            self.processesView?.removeFromSuperview()
-            self.processesView = nil
-            self.processes = nil
-            self.addArrangedSubview(self.initProcesses())
-            self.processesInitialized = false
-            self.recalculateHeight()
+            let list = self.visibleTopProcesses(from: self.latestTopProcesses)
+            if !self.processListEnabled {
+                self.renderProcessList([])
+            } else if !list.isEmpty {
+                self.renderProcessList(list)
+            } else {
+                self.rebuildProcesses(count: self.numberOfProcesses)
+            }
         })
     }
     

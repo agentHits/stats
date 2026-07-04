@@ -227,30 +227,48 @@ public class ProcessReader: Reader<[TopProcess]> {
             return
         }
         
-        let output = String(data: outputData.advanced(by: outputData.count/2), encoding: .utf8)
+        let output = String(data: outputData, encoding: .utf8)
         guard let output, !output.isEmpty else { return }
         
-        var processes: [TopProcess] = []
+        self.callback(Self.parseProcesses(output, limit: self.numberOfProcesses))
+    }
+
+    static public func parseProcesses(_ output: String, limit: Int) -> [TopProcess] {
+        guard limit > 0 else { return [] }
+
+        var currentSample: [TopProcess] = []
         output.enumerateLines { (line, _) in
-            if line.matches("^\\d+ *[^(\\d)]*\\d+\\.*\\d* *$") {
-                let str = line.trimmingCharacters(in: .whitespaces)
-                let pidFind = str.findAndCrop(pattern: "^\\d+")
-                let usageFind = pidFind.remain.findAndCrop(pattern: " +[0-9]+.*[0-9]*$")
-                let command = usageFind.remain.trimmingCharacters(in: .whitespaces)
-                let pid = Int(pidFind.cropped) ?? 0
-                guard let usage = Double(usageFind.cropped.filter("01234567890.".contains)) else {
-                    return
-                }
-                
-                var name: String = command
-                if let app = NSRunningApplication(processIdentifier: pid_t(pid)), let n = app.localizedName {
-                    name = n
-                }
-                
-                processes.append(TopProcess(pid: pid, name: name, usage: usage))
+            if line.trimmingCharacters(in: .whitespaces).hasPrefix("PID") {
+                currentSample.removeAll()
+                return
+            }
+
+            if let process = Self.parseProcess(line) {
+                currentSample.append(process)
             }
         }
-        
-        self.callback(processes.suffix(self.numberOfProcesses).sorted(by: { $0.usage > $1.usage }))
+
+        return Array(currentSample.sorted(by: { $0.usage > $1.usage }).prefix(limit))
+    }
+
+    static public func parseProcess(_ raw: String) -> TopProcess? {
+        let parts = raw.split(whereSeparator: { $0 == " " || $0 == "\t" })
+        guard parts.count >= 3 else { return nil }
+
+        let pidString = parts[0].filter { $0.isNumber }
+        let usageString = parts[parts.count - 1].filter { $0.isNumber || $0 == "." }
+        guard let pid = Int(pidString), let usage = Double(usageString) else {
+            return nil
+        }
+
+        let command = parts[1..<(parts.count - 1)].joined(separator: " ")
+        guard !command.isEmpty else { return nil }
+
+        var name = command
+        if let app = NSRunningApplication(processIdentifier: pid_t(pid)), let n = app.localizedName {
+            name = n
+        }
+
+        return TopProcess(pid: pid, name: name, usage: usage)
     }
 }
