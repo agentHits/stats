@@ -6,8 +6,8 @@ APP_PATH = "$(BUILD_PATH)/$(APP).app"
 ZIP_PATH = "$(BUILD_PATH)/$(APP).zip"
 WIDGET_PATH = "$(BUILD_PATH)/$(APP).app/Contents/PlugIns/WidgetsExtension.appex"
 
-.SILENT: archive notarize sign verify prepare-dmg prepare-dSYM clean next-version check history disk smc leveldb
-.PHONY: build archive notarize sign verify prepare-dmg prepare-dSYM clean next-version check history open smc leveldb
+.SILENT: archive notarize sign verify prepare-dmg prepare-dSYM clean next-version check history disk monitoring-guard smc leveldb
+.PHONY: build archive notarize sign verify prepare-dmg prepare-dSYM clean next-version check history monitoring-guard open smc leveldb
 
 build: clean next-version archive notarize sign verify prepare-dmg prepare-dSYM open
 
@@ -126,6 +126,10 @@ check:
 
 history:
 	xcrun notarytool history --keychain-profile "AC_PASSWORD"
+
+monitoring-guard:
+	python3 Kit/scripts/passive_monitoring_guard.py --self-test
+	python3 Kit/scripts/passive_monitoring_guard.py
 
 open:
 	osascript -e 'display notification "Stats signed and ready for distribution" with title "Build the Stats"'
