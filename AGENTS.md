@@ -9,3 +9,11 @@
 - Monitoring code must not materially affect the metrics it reports. In particular, Disk monitoring must not make Stats/AgentHits a noticeable disk reader/writer, and performance features must not become a visible CPU, memory, energy, or I/O source.
 - Before completing any monitoring feature or bugfix, perform a self-impact check: list any new disk I/O, persistence, process spawning, network access, timer frequency, and memory growth; remove unnecessary impact; add tests or static searches when practical.
 - If durable storage or heavier collection is truly required, pause and get explicit user approval first. Document what is stored, where it is stored, write/read frequency, retention, upper bounds, and verification that the overhead is negligible.
+
+## Low-Impact Verification
+
+- Do not run `xcodebuild`, Xcode test/build/archive commands, or other heavy build tooling without explicit user approval in the current turn. These commands create large DerivedData, module caches, indexes, object files, and build products, and can trigger Spotlight, Gatekeeper, and FileProvider disk activity.
+- Never use `.agent-work/derived-data` for Xcode DerivedData or build artifacts. `.agent-work` is for lightweight local memory/traces only, not large compiler output.
+- If the user explicitly approves an Xcode build/test, use a dedicated no-index location such as `/Users/agent/Developer/DerivedData.noindex/<task-name>` and explain before running that the command will write build artifacts to disk.
+- After an approved heavy verification run, delete its build artifacts when the user asks for cleanup, and report the exact path removed.
+- Prefer low-impact verification by default: `git diff`, `git status`, `rg`, static guards, parser self-tests, and focused source inspection that do not generate large build outputs.
