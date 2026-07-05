@@ -52,7 +52,7 @@ internal class Preview: PreviewWrapper {
         networkSpeedUnit(from: Store.shared.string(key: "\(self.module.stringValue)_speedUnit", defaultValue: NetworkSpeedUnitAuto)).key
     }
     private var processLimit: Int {
-        min(6, max(0, Store.shared.int(key: "\(self.module.stringValue)_processes", defaultValue: 5)))
+        min(NumbersOfProcesses.max() ?? 15, max(0, Store.shared.int(key: "\(self.module.stringValue)_processes", defaultValue: 5)))
     }
     
     private var uri: URL? = nil
@@ -81,6 +81,7 @@ internal class Preview: PreviewWrapper {
     private var periodCoverageField: NSTextField?
     private var periodCoverageHintField: NSTextField?
     private var periodCoverageProgress: NSProgressIndicator?
+    private var periodProcessTitleField: NSTextField?
     private var periodTopSourceValueField: ValueField?
     private var periodTimelineChart: DiskActivityTimelineChart?
     private var periodProcessTable: DiskActivityProcessTable?
@@ -435,7 +436,7 @@ internal class Preview: PreviewWrapper {
         view.alignment = .width
         view.translatesAutoresizingMaskIntoConstraints = false
         view.spacing = Constants.Settings.margin
-        view.heightAnchor.constraint(equalToConstant: 266).isActive = true
+        view.heightAnchor.constraint(greaterThanOrEqualToConstant: 266).isActive = true
         view.edgeInsets = NSEdgeInsets(
             top: Constants.Settings.margin,
             left: 0,
@@ -480,16 +481,22 @@ internal class Preview: PreviewWrapper {
 
         let processTitle = LabelField(localizedString("Disk activity processes"))
         processTitle.font = .systemFont(ofSize: 11, weight: .semibold)
+        let processHint = LabelField(localizedString("Disk activity process counters, not exact files"))
+        processHint.font = .systemFont(ofSize: 10, weight: .regular)
+        processHint.textColor = .tertiaryLabelColor
+        processHint.lineBreakMode = .byTruncatingTail
         let table = DiskActivityProcessTable()
         table.setContentHuggingPriority(.defaultLow, for: .horizontal)
         table.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         self.periodProcessTable = table
+        self.periodProcessTitleField = processTitle
 
         view.addArrangedSubview(coverageStatus)
         view.addArrangedSubview(summary)
         view.addArrangedSubview(processTitle)
+        view.addArrangedSubview(processHint)
         view.addArrangedSubview(table)
-        [coverageStatus, summary, processTitle, table].forEach { item in
+        [coverageStatus, summary, processTitle, processHint, table].forEach { item in
             item.translatesAutoresizingMaskIntoConstraints = false
             item.widthAnchor.constraint(equalTo: view.widthAnchor).isActive = true
         }
@@ -769,16 +776,56 @@ internal class Preview: PreviewWrapper {
         if let topProcess = summary.processes.first {
             let share = String(format: "%.0f%%", topProcess.share * 100)
             self.periodTopSourceValueField?.stringValue = "\(topProcess.name) · \(Units(bytes: topProcess.total).getReadableMemory()) · \(share)"
-            self.periodTopSourceValueField?.toolTip = [
-                topProcess.name,
-                "\(localizedString("Read")): \(Units(bytes: topProcess.read).getReadableMemory())",
-                "\(localizedString("Write")): \(Units(bytes: topProcess.write).getReadableMemory())"
-            ].joined(separator: "\n")
+            self.periodTopSourceValueField?.toolTip = DiskActivityProcessDisplayRow(process: topProcess).tooltip
         } else {
             self.periodTopSourceValueField?.stringValue = "-"
             self.periodTopSourceValueField?.toolTip = nil
         }
-        self.periodProcessTable?.setRows(summary.processes)
+        let displayRows = self.periodActivityDisplayRows(from: summary)
+        self.periodProcessTitleField?.stringValue = self.periodProcessTitle(for: summary, displayRows: displayRows)
+        self.periodProcessTable?.setRows(displayRows)
+    }
+
+    private func periodActivityDisplayRows(from summary: DiskActivitySummary) -> [DiskActivityProcessDisplayRow] {
+        var rows = summary.processes.map { DiskActivityProcessDisplayRow(process: $0) }
+        let shareDenominator = max(summary.total, summary.capturedProcessTotal + summary.unattributedTotal)
+
+        if summary.hiddenProcessTotal > 0 {
+            rows.append(DiskActivityProcessDisplayRow(
+                name: localizedString("Other captured processes"),
+                read: summary.hiddenProcessRead,
+                write: summary.hiddenProcessWrite,
+                shareDenominator: shareDenominator,
+                color: .secondaryLabelColor,
+                tooltip: localizedString("Additional captured processes outside the visible limit")
+            ))
+        }
+
+        if summary.unattributedTotal > 0 {
+            rows.append(DiskActivityProcessDisplayRow(
+                name: localizedString("System / unattributed"),
+                read: summary.unattributedRead,
+                write: summary.unattributedWrite,
+                shareDenominator: shareDenominator,
+                color: .secondaryLabelColor,
+                tooltip: localizedString("Disk activity not attributed to visible processes")
+            ))
+        }
+
+        return rows
+    }
+
+    private func periodProcessTitle(for summary: DiskActivitySummary, displayRows: [DiskActivityProcessDisplayRow]) -> String {
+        guard summary.totalProcessCount != 0 else {
+            return localizedString("Disk activity processes")
+        }
+
+        let visibleProcessCount = summary.processes.count
+        let base = localizedString("Disk activity processes")
+        if visibleProcessCount == summary.totalProcessCount {
+            return "\(base) · \(visibleProcessCount)/\(summary.totalProcessCount)"
+        }
+        return "\(base) · \(visibleProcessCount)/\(summary.totalProcessCount) \(localizedString("shown")) · \(displayRows.count) \(localizedString("rows"))"
     }
 
     private func updatePeriodCoverage(_ coverage: DiskActivityCoverage) {
@@ -1089,8 +1136,55 @@ private class DiskActivityTimelineChart: NSView {
     }
 }
 
+private struct DiskActivityProcessDisplayRow {
+    let name: String
+    let read: Int64
+    let write: Int64
+    let total: Int64
+    let share: Double
+    let color: NSColor
+    let tooltip: String?
+    let copyText: String?
+
+    init(process: DiskActivityProcessSummary) {
+        self.name = process.name
+        self.read = process.read
+        self.write = process.write
+        self.total = process.total
+        self.share = process.share
+        self.color = .labelColor
+        var details = [
+            localizedString("Disk activity is local, not cloud upload"),
+            localizedString("Disk activity source is process counters"),
+            "\(localizedString("Read")): \(Units(bytes: process.read).getReadableMemory())",
+            "\(localizedString("Write")): \(Units(bytes: process.write).getReadableMemory())",
+            "\(localizedString("Process ID")): \(process.pid)"
+        ]
+        if let bundleIdentifier = process.bundleIdentifier, !bundleIdentifier.isEmpty {
+            details.append("\(localizedString("Bundle ID")): \(bundleIdentifier)")
+        }
+        if let executablePath = process.executablePath, !executablePath.isEmpty {
+            details.append("\(localizedString("Executable")): \(executablePath)")
+        }
+        details.append(localizedString("Past exact files cannot be reconstructed"))
+        self.copyText = details.joined(separator: "\n")
+        self.tooltip = (details + [localizedString("Click to copy process details")]).joined(separator: "\n")
+    }
+
+    init(name: String, read: Int64, write: Int64, shareDenominator: Int64, color: NSColor, tooltip: String?) {
+        self.name = name
+        self.read = read
+        self.write = write
+        self.total = read + write
+        self.share = shareDenominator == 0 ? 0 : Double(read + write) / Double(shareDenominator)
+        self.color = color
+        self.tooltip = tooltip
+        self.copyText = nil
+    }
+}
+
 private class DiskActivityProcessTable: NSStackView {
-    private let maxRows: Int = 6
+    private let maxRows: Int = (NumbersOfProcesses.max() ?? 15) + 2
     private var rowViews: [DiskActivityProcessRow] = []
 
     init() {
@@ -1113,12 +1207,14 @@ private class DiskActivityProcessTable: NSStackView {
         fatalError("init(coder:) has not been implemented")
     }
 
-    func setRows(_ rows: [DiskActivityProcessSummary]) {
+    func setRows(_ rows: [DiskActivityProcessDisplayRow]) {
         for (idx, view) in self.rowViews.enumerated() {
             if idx < rows.count {
                 view.update(rows[idx])
+                view.isHidden = false
             } else {
                 view.reset()
+                view.isHidden = true
             }
         }
     }
@@ -1135,6 +1231,7 @@ private class DiskActivityProcessRow: NSView {
     private let isHeader: Bool
     private var share: Double = 0
     private var shareColor: NSColor = .clear
+    private var copyText: String?
 
     private let nameField = LabelField("-")
     private let readField = LabelField("-")
@@ -1217,17 +1314,29 @@ private class DiskActivityProcessRow: NSView {
         NSBezierPath(roundedRect: rect, xRadius: 3, yRadius: 3).fill()
     }
 
-    func update(_ row: DiskActivityProcessSummary) {
+    func update(_ row: DiskActivityProcessDisplayRow) {
         self.nameField.stringValue = row.name
         self.nameField.toolTip = row.name
+        self.nameField.textColor = row.color
         self.readField.stringValue = Units(bytes: row.read).getReadableMemory()
         self.writeField.stringValue = Units(bytes: row.write).getReadableMemory()
         self.totalField.stringValue = Units(bytes: row.total).getReadableMemory()
         self.shareField.stringValue = String(format: "%.0f%%", row.share * 100)
         self.share = row.share
         self.shareColor = row.write >= row.read ? NSColor.systemRed : NSColor.systemBlue
-        self.toolTip = "pid: \(row.pid)"
+        self.toolTip = row.tooltip
+        self.copyText = row.copyText
         self.needsDisplay = true
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        guard !self.isHeader, let copyText, !copyText.isEmpty else {
+            super.mouseDown(with: event)
+            return
+        }
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(copyText, forType: .string)
     }
 
     func reset() {
@@ -1235,7 +1344,9 @@ private class DiskActivityProcessRow: NSView {
             $0.stringValue = "-"
             $0.toolTip = nil
         }
+        self.nameField.textColor = .labelColor
         self.share = 0
+        self.copyText = nil
         self.toolTip = nil
         self.needsDisplay = true
     }

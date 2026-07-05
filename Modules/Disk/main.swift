@@ -185,6 +185,7 @@ public struct Disk_process: Process_p, Codable {
     public var pid: Int
     public var name: String
     public var bundleIdentifier: String?
+    public var executablePath: String?
     public var icon: NSImage {
         if let app = NSRunningApplication(processIdentifier: pid_t(self.pid)) {
             return app.icon ?? Constants.defaultProcessIcon
@@ -206,6 +207,9 @@ public struct Disk_process: Process_p, Codable {
                 self.name = name
             }
             self.bundleIdentifier = app.bundleIdentifier
+            self.executablePath = app.executableURL?.path
+        } else if name.hasPrefix("/") {
+            self.executablePath = name
         }
     }
 }
@@ -270,6 +274,8 @@ public struct DiskActivityProcessSummary: Codable {
     public let identity: String
     public let pid: Int
     public let name: String
+    public let bundleIdentifier: String?
+    public let executablePath: String?
     public let read: Int64
     public let write: Int64
     public let total: Int64
@@ -321,8 +327,18 @@ public struct DiskActivitySummary: Codable {
     public let total: Int64
     public let peakRead: Int64
     public let peakWrite: Int64
+    public let capturedProcessRead: Int64
+    public let capturedProcessWrite: Int64
+    public let capturedProcessTotal: Int64
+    public let hiddenProcessRead: Int64
+    public let hiddenProcessWrite: Int64
+    public let hiddenProcessTotal: Int64
+    public let unattributedRead: Int64
+    public let unattributedWrite: Int64
+    public let unattributedTotal: Int64
     public let diskSampleCount: Int
     public let processSampleCount: Int
+    public let totalProcessCount: Int
     public let timeline: [DiskActivityTimelinePoint]
     public let coverage: DiskActivityCoverage
     public let processes: [DiskActivityProcessSummary]
@@ -346,6 +362,8 @@ private struct DiskActivityProcessBucket: Codable {
     var identity: String
     var pid: Int
     var name: String
+    var bundleIdentifier: String?
+    var executablePath: String?
     var read: Int64
     var write: Int64
 }
@@ -416,15 +434,30 @@ public final class DiskActivityHistoryStore {
                 let identity = self.identity(for: process)
                 let safeRead = Int64(max(0, process.read))
                 let safeWrite = Int64(max(0, process.write))
-                if let idx = self.snapshot.processes.firstIndex(where: { $0.ts == bucketTS && $0.identity == identity }) {
+                if let idx = self.snapshot.processes.firstIndex(where: { $0.ts == bucketTS && ($0.identity == identity || $0.pid == process.pid) }) {
                     self.snapshot.processes[idx].read += safeRead
                     self.snapshot.processes[idx].write += safeWrite
+                    self.snapshot.processes[idx].pid = process.pid
+                    if process.bundleIdentifier != nil {
+                        self.snapshot.processes[idx].bundleIdentifier = process.bundleIdentifier
+                        self.snapshot.processes[idx].identity = identity
+                    }
+                    if process.executablePath != nil {
+                        self.snapshot.processes[idx].executablePath = process.executablePath
+                    }
+                    self.snapshot.processes[idx].name = self.displayName(
+                        name: process.name,
+                        bundleIdentifier: self.snapshot.processes[idx].bundleIdentifier,
+                        executablePath: self.snapshot.processes[idx].executablePath
+                    )
                 } else {
                     self.snapshot.processes.append(DiskActivityProcessBucket(
                         ts: bucketTS,
                         identity: identity,
                         pid: process.pid,
-                        name: process.name,
+                        name: self.displayName(for: process),
+                        bundleIdentifier: process.bundleIdentifier,
+                        executablePath: process.executablePath,
                         read: safeRead,
                         write: safeWrite
                     ))
@@ -460,25 +493,47 @@ public final class DiskActivityHistoryStore {
 
             var grouped: [String: DiskActivityProcessBucket] = [:]
             processBuckets.forEach { bucket in
-                if var existing = grouped[bucket.identity] {
+                let groupKey = self.groupKey(for: bucket, in: grouped)
+                if var existing = grouped[groupKey] {
                     existing.read += bucket.read
                     existing.write += bucket.write
                     existing.pid = bucket.pid
-                    existing.name = bucket.name
-                    grouped[bucket.identity] = existing
+                    if bucket.bundleIdentifier != nil {
+                        existing.identity = bucket.identity
+                    }
+                    if existing.bundleIdentifier == nil {
+                        existing.bundleIdentifier = bucket.bundleIdentifier
+                    }
+                    if existing.executablePath == nil {
+                        existing.executablePath = bucket.executablePath
+                    }
+                    existing.name = self.displayName(
+                        name: bucket.name,
+                        bundleIdentifier: existing.bundleIdentifier,
+                        executablePath: existing.executablePath
+                    )
+                    grouped.removeValue(forKey: groupKey)
+                    grouped[existing.identity] = existing
                 } else {
                     grouped[bucket.identity] = bucket
                 }
             }
 
-            let processTotal = grouped.values.reduce(Int64(0)) { $0 + $1.read + $1.write }
+            let capturedProcessRead = grouped.values.reduce(Int64(0)) { $0 + $1.read }
+            let capturedProcessWrite = grouped.values.reduce(Int64(0)) { $0 + $1.write }
+            let capturedProcessTotal = capturedProcessRead + capturedProcessWrite
+            let unattributedRead = max(0, read - capturedProcessRead)
+            let unattributedWrite = max(0, write - capturedProcessWrite)
+            let shareDenominator = max(read + write, capturedProcessTotal + unattributedRead + unattributedWrite)
             let rows = grouped.values.map { bucket -> DiskActivityProcessSummary in
                 let total = bucket.read + bucket.write
-                let share = processTotal == 0 ? 0 : Double(total) / Double(processTotal)
+                let share = shareDenominator == 0 ? 0 : Double(total) / Double(shareDenominator)
                 return DiskActivityProcessSummary(
                     identity: bucket.identity,
                     pid: bucket.pid,
                     name: bucket.name,
+                    bundleIdentifier: bucket.bundleIdentifier,
+                    executablePath: bucket.executablePath,
                     read: bucket.read,
                     write: bucket.write,
                     total: total,
@@ -499,6 +554,11 @@ public final class DiskActivityHistoryStore {
                     return lhs.write > rhs.write
                 }
             }
+            let visibleRows = Array(rows.prefix(limit))
+            let hiddenRows = rows.dropFirst(max(0, limit))
+            let hiddenProcessRead = hiddenRows.reduce(Int64(0)) { $0 + $1.read }
+            let hiddenProcessWrite = hiddenRows.reduce(Int64(0)) { $0 + $1.write }
+            let hiddenProcessTotal = hiddenProcessRead + hiddenProcessWrite
 
             return DiskActivitySummary(
                 period: period,
@@ -507,11 +567,21 @@ public final class DiskActivityHistoryStore {
                 total: read + write,
                 peakRead: peakRead,
                 peakWrite: peakWrite,
+                capturedProcessRead: capturedProcessRead,
+                capturedProcessWrite: capturedProcessWrite,
+                capturedProcessTotal: capturedProcessTotal,
+                hiddenProcessRead: hiddenProcessRead,
+                hiddenProcessWrite: hiddenProcessWrite,
+                hiddenProcessTotal: hiddenProcessTotal,
+                unattributedRead: unattributedRead,
+                unattributedWrite: unattributedWrite,
+                unattributedTotal: unattributedRead + unattributedWrite,
                 diskSampleCount: diskBuckets.count,
                 processSampleCount: processBuckets.count,
+                totalProcessCount: rows.count,
                 timeline: timeline,
                 coverage: coverage,
-                processes: Array(rows.prefix(limit))
+                processes: visibleRows
             )
         }
     }
@@ -529,6 +599,50 @@ public final class DiskActivityHistoryStore {
             return bundle
         }
         return process.name
+    }
+
+    private func groupKey(for bucket: DiskActivityProcessBucket, in grouped: [String: DiskActivityProcessBucket]) -> String {
+        if grouped[bucket.identity] != nil {
+            return bucket.identity
+        }
+        if let pidMatch = grouped.first(where: { _, existing in existing.pid == bucket.pid && self.canMerge(existing, with: bucket) }) {
+            return pidMatch.key
+        }
+        return bucket.identity
+    }
+
+    private func canMerge(_ lhs: DiskActivityProcessBucket, with rhs: DiskActivityProcessBucket) -> Bool {
+        if lhs.identity == rhs.identity {
+            return true
+        }
+        guard lhs.pid == rhs.pid else {
+            return false
+        }
+        if lhs.name == rhs.name {
+            return true
+        }
+        return lhs.bundleIdentifier != nil || rhs.bundleIdentifier != nil || lhs.executablePath != nil || rhs.executablePath != nil
+    }
+
+    private func displayName(for process: Disk_process) -> String {
+        self.displayName(
+            name: process.name,
+            bundleIdentifier: process.bundleIdentifier,
+            executablePath: process.executablePath
+        )
+    }
+
+    private func displayName(name: String, bundleIdentifier: String?, executablePath: String?) -> String {
+        let bundle = bundleIdentifier?.lowercased() ?? ""
+        let executable = executablePath?.lowercased() ?? ""
+        let executableName = executablePath.map { ($0 as NSString).lastPathComponent.lowercased() } ?? ""
+        if bundle.contains("drivefs") ||
+            executable.contains("/google drive.app/") ||
+            executableName == "google drive" ||
+            executable.contains("drivefs") {
+            return "Google Drive"
+        }
+        return name
     }
 
     private func bucketStart(for date: Date) -> TimeInterval {

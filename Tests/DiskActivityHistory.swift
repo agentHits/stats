@@ -117,6 +117,124 @@ final class DiskActivityHistoryTests: XCTestCase {
         XCTAssertTrue(disabledSummary.processes.isEmpty)
     }
 
+    func testDiskActivitySummarySeparatesHiddenAndUnattributedIO() throws {
+        let store = DiskActivityHistoryStore(persistenceURL: nil)
+        let now = Date(timeIntervalSince1970: 10_000)
+        let editor = Disk_process(pid: 100, name: "Editor", read: 300, write: 100)
+        let backup = Disk_process(pid: 101, name: "Backup", read: 200, write: 50)
+        let sync = Disk_process(pid: 102, name: "Sync", read: 100, write: 150)
+
+        store.recordDisk(diskID: "main", read: 1_000, write: 500, at: now)
+        store.recordProcesses([editor, backup, sync], at: now)
+
+        let summary = store.summary(diskID: "main", period: .hour1, sort: .total, limit: 2, now: now)
+
+        XCTAssertEqual(summary.processes.map(\.name), ["Editor", "Backup"])
+        XCTAssertEqual(summary.capturedProcessRead, 600)
+        XCTAssertEqual(summary.capturedProcessWrite, 300)
+        XCTAssertEqual(summary.capturedProcessTotal, 900)
+        XCTAssertEqual(summary.hiddenProcessRead, 100)
+        XCTAssertEqual(summary.hiddenProcessWrite, 150)
+        XCTAssertEqual(summary.hiddenProcessTotal, 250)
+        XCTAssertEqual(summary.unattributedRead, 400)
+        XCTAssertEqual(summary.unattributedWrite, 200)
+        XCTAssertEqual(summary.unattributedTotal, 600)
+        XCTAssertEqual(summary.totalProcessCount, 3)
+        XCTAssertEqual(summary.processes[0].share, Double(400) / Double(1_500), accuracy: 0.0001)
+    }
+
+    func testDiskActivityShareIncludesPositiveUnattributedDeltas() throws {
+        let store = DiskActivityHistoryStore(persistenceURL: nil)
+        let now = Date(timeIntervalSince1970: 10_000)
+        let reader = Disk_process(pid: 100, name: "Reader", read: 1_000, write: 100)
+
+        store.recordDisk(diskID: "main", read: 100, write: 1_000, at: now)
+        store.recordProcesses([reader], at: now)
+
+        let summary = store.summary(diskID: "main", period: .hour1, sort: .total, limit: 1, now: now)
+
+        XCTAssertEqual(summary.capturedProcessTotal, 1_100)
+        XCTAssertEqual(summary.unattributedRead, 0)
+        XCTAssertEqual(summary.unattributedWrite, 900)
+        XCTAssertEqual(summary.unattributedTotal, 900)
+        XCTAssertEqual(summary.processes[0].share, Double(1_100) / Double(2_000), accuracy: 0.0001)
+    }
+
+    func testDiskActivitySummaryNamesGoogleDriveProcess() throws {
+        let store = DiskActivityHistoryStore(persistenceURL: nil)
+        let now = Date(timeIntervalSince1970: 10_000)
+        var drive = Disk_process(pid: 100, name: "Google", read: 10, write: 20)
+        drive.bundleIdentifier = "com.google.drivefs"
+        drive.executablePath = "/Applications/Google Drive.app/Contents/MacOS/Google Drive"
+
+        store.recordProcesses([drive], at: now)
+
+        let summary = store.summary(diskID: nil, period: .hour1, sort: .total, limit: 1, now: now)
+
+        XCTAssertEqual(summary.processes.first?.name, "Google Drive")
+        XCTAssertEqual(summary.processes.first?.bundleIdentifier, "com.google.drivefs")
+        XCTAssertEqual(summary.processes.first?.executablePath, "/Applications/Google Drive.app/Contents/MacOS/Google Drive")
+    }
+
+    func testDiskActivitySummaryKeepsPlainGoogleProcessName() throws {
+        let store = DiskActivityHistoryStore(persistenceURL: nil)
+        let now = Date(timeIntervalSince1970: 10_000)
+        var google = Disk_process(pid: 100, name: "Google", read: 10, write: 20)
+        google.executablePath = "/Applications/Google Tools/Google"
+
+        store.recordProcesses([google], at: now)
+
+        let summary = store.summary(diskID: nil, period: .hour1, sort: .total, limit: 1, now: now)
+
+        XCTAssertEqual(summary.processes.first?.name, "Google")
+    }
+
+    func testDiskActivitySummaryMergesLaterProcessMetadata() throws {
+        let store = DiskActivityHistoryStore(persistenceURL: nil)
+        let now = Date(timeIntervalSince1970: 10_000)
+        let firstSample = Disk_process(pid: 100, name: "Google", read: 10, write: 20)
+        var secondSample = Disk_process(pid: 100, name: "Google", read: 30, write: 40)
+        secondSample.bundleIdentifier = "com.google.drivefs"
+        secondSample.executablePath = "/Applications/Google Drive.app/Contents/MacOS/Google Drive"
+
+        store.recordProcesses([firstSample], at: now)
+        store.recordProcesses([secondSample], at: now.addingTimeInterval(1))
+
+        let summary = store.summary(diskID: nil, period: .hour1, sort: .total, limit: 1, now: now.addingTimeInterval(1))
+
+        XCTAssertEqual(summary.processSampleCount, 1)
+        XCTAssertEqual(summary.totalProcessCount, 1)
+        XCTAssertEqual(summary.processes.first?.identity, "com.google.drivefs")
+        XCTAssertEqual(summary.processes.first?.name, "Google Drive")
+        XCTAssertEqual(summary.processes.first?.bundleIdentifier, "com.google.drivefs")
+        XCTAssertEqual(summary.processes.first?.executablePath, "/Applications/Google Drive.app/Contents/MacOS/Google Drive")
+        XCTAssertEqual(summary.processes.first?.read, 40)
+        XCTAssertEqual(summary.processes.first?.write, 60)
+    }
+
+    func testDiskActivitySummaryKeepsEarlierProcessMetadata() throws {
+        let store = DiskActivityHistoryStore(persistenceURL: nil)
+        let now = Date(timeIntervalSince1970: 10_000)
+        var firstSample = Disk_process(pid: 100, name: "Google", read: 10, write: 20)
+        firstSample.bundleIdentifier = "com.google.drivefs"
+        firstSample.executablePath = "/Applications/Google Drive.app/Contents/MacOS/Google Drive"
+        let secondSample = Disk_process(pid: 100, name: "Google", read: 30, write: 40)
+
+        store.recordProcesses([firstSample], at: now)
+        store.recordProcesses([secondSample], at: now.addingTimeInterval(1))
+
+        let summary = store.summary(diskID: nil, period: .hour1, sort: .total, limit: 1, now: now.addingTimeInterval(1))
+
+        XCTAssertEqual(summary.processSampleCount, 1)
+        XCTAssertEqual(summary.totalProcessCount, 1)
+        XCTAssertEqual(summary.processes.first?.identity, "com.google.drivefs")
+        XCTAssertEqual(summary.processes.first?.name, "Google Drive")
+        XCTAssertEqual(summary.processes.first?.bundleIdentifier, "com.google.drivefs")
+        XCTAssertEqual(summary.processes.first?.executablePath, "/Applications/Google Drive.app/Contents/MacOS/Google Drive")
+        XCTAssertEqual(summary.processes.first?.read, 40)
+        XCTAssertEqual(summary.processes.first?.write, 60)
+    }
+
     func testDiskActivitySummarySortsProcessesByReadAndWrite() throws {
         let store = DiskActivityHistoryStore(persistenceURL: nil)
         let now = Date(timeIntervalSince1970: 10_000)
