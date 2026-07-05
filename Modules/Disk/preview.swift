@@ -1168,7 +1168,7 @@ private struct DiskActivityProcessDisplayRow {
         }
         details.append(localizedString("Past exact files cannot be reconstructed"))
         self.copyText = details.joined(separator: "\n")
-        self.tooltip = (details + [localizedString("Click to copy process details")]).joined(separator: "\n")
+        self.tooltip = (details + [localizedString("Right-click to copy process details")]).joined(separator: "\n")
     }
 
     init(name: String, read: Int64, write: Int64, shareDenominator: Int64, color: NSColor, tooltip: String?) {
@@ -1329,11 +1329,24 @@ private class DiskActivityProcessRow: NSView {
         self.needsDisplay = true
     }
 
-    override func mouseDown(with event: NSEvent) {
+    override func menu(for event: NSEvent) -> NSMenu? {
         guard !self.isHeader, let copyText, !copyText.isEmpty else {
-            super.mouseDown(with: event)
-            return
+            return super.menu(for: event)
         }
+        let menu = NSMenu()
+        let item = NSMenuItem(
+            title: localizedString("Copy process details"),
+            action: #selector(self.copyProcessDetails(_:)),
+            keyEquivalent: ""
+        )
+        item.target = self
+        item.representedObject = copyText
+        menu.addItem(item)
+        return menu
+    }
+
+    @objc private func copyProcessDetails(_ sender: NSMenuItem) {
+        guard let copyText = sender.representedObject as? String, !copyText.isEmpty else { return }
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         pasteboard.setString(copyText, forType: .string)

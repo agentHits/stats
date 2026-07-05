@@ -366,7 +366,8 @@
 "Disk activity process counters, not exact files" = "Local process disk counters; exact files are not captured";
 "Disk activity source is process counters" = "Source: macOS per-process disk byte counters";
 "Past exact files cannot be reconstructed" = "Exact files for past activity cannot be reconstructed from this passive view";
-"Click to copy process details" = "Click to copy process details";
+"Right-click to copy process details" = "Right-click to copy process details";
+"Copy process details" = "Copy process details";
 "Process ID" = "Process ID";
 "Bundle ID" = "Bundle ID";
 "Executable" = "Executable";

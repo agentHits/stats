@@ -366,7 +366,8 @@
 "Disk activity process counters, not exact files" = "Счетчики диска по процессам; точные файлы не захватываются";
 "Disk activity source is process counters" = "Источник: счетчики байтов диска macOS по процессам";
 "Past exact files cannot be reconstructed" = "Точные файлы за прошлый период нельзя восстановить из этого пассивного вида";
-"Click to copy process details" = "Клик — скопировать детали процесса";
+"Right-click to copy process details" = "Правый клик — скопировать детали процесса";
+"Copy process details" = "Скопировать детали процесса";
 "Process ID" = "PID процесса";
 "Bundle ID" = "Bundle ID";
 "Executable" = "Исполняемый файл";
