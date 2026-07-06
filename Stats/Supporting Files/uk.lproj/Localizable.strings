@@ -361,6 +361,10 @@
 "Other captured processes" = "Other captured processes";
 "System / unattributed" = "System / unattributed";
 "Additional captured processes outside the visible limit" = "Additional captured processes outside the visible limit";
+"Show more processes" = "Show more processes";
+"Show fewer processes" = "Show fewer processes";
+"More captured processes are available" = "Show more captured processes from history";
+"Fewer process rows are shown" = "Collapse process rows to the normal limit";
 "Disk activity not attributed to visible processes" = "Disk activity not attributed to visible processes";
 "Disk activity is local, not cloud upload" = "Local disk activity, not cloud upload/download";
 "Disk activity process counters, not exact files" = "Local process disk counters; exact files are not captured";

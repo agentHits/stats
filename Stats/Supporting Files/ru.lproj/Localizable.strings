@@ -361,6 +361,10 @@
 "Other captured processes" = "Прочие захваченные процессы";
 "System / unattributed" = "Система / не атрибутировано";
 "Additional captured processes outside the visible limit" = "Дополнительные захваченные процессы за пределами видимого лимита";
+"Show more processes" = "Показать больше процессов";
+"Show fewer processes" = "Показать меньше процессов";
+"More captured processes are available" = "Показать больше захваченных процессов из истории";
+"Fewer process rows are shown" = "Свернуть список процессов до обычного лимита";
 "Disk activity not attributed to visible processes" = "Дисковая активность, не привязанная к видимым процессам";
 "Disk activity is local, not cloud upload" = "Локальная активность диска, не upload/download";
 "Disk activity process counters, not exact files" = "Счетчики диска по процессам; точные файлы не захватываются";

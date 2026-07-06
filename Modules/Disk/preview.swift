@@ -12,6 +12,8 @@
 import Cocoa
 import Kit
 
+private let DiskActivityExpandedProcessLimit = 50
+
 internal class Preview: PreviewWrapper {
     private var mainID: String? = nil
     
@@ -73,6 +75,7 @@ internal class Preview: PreviewWrapper {
     
     private var activityPeriod: DiskActivityPeriod = .hour1
     private var activitySort: DiskActivityProcessSort = .total
+    private var activityProcessesExpanded: Bool = false
     private var periodReadValueField: ValueField?
     private var periodWriteValueField: ValueField?
     private var periodTotalValueField: ValueField?
@@ -82,6 +85,7 @@ internal class Preview: PreviewWrapper {
     private var periodCoverageHintField: NSTextField?
     private var periodCoverageProgress: NSProgressIndicator?
     private var periodProcessTitleField: NSTextField?
+    private var periodProcessToggleButton: NSButton?
     private var periodTopSourceValueField: ValueField?
     private var periodTimelineChart: DiskActivityTimelineChart?
     private var periodProcessTable: DiskActivityProcessTable?
@@ -106,7 +110,6 @@ internal class Preview: PreviewWrapper {
         self.activitySort = DiskActivityProcessSort(
             rawValue: Store.shared.string(key: "\(self.module.stringValue)_activitySort", defaultValue: self.activitySort.rawValue)
         ) ?? self.activitySort
-        
         self.addArrangedSubview(PreferencesSection([self.usageView()]))
         
         let allDisks = PreferencesSection(title: localizedString("All disks"), subtitle: "", [self.disks])
@@ -479,8 +482,31 @@ internal class Preview: PreviewWrapper {
         summary.addArrangedSubview(totals)
         summary.addArrangedSubview(peaks)
 
+        let processHeader = NSStackView()
+        processHeader.orientation = .horizontal
+        processHeader.alignment = .centerY
+        processHeader.spacing = Constants.Settings.margin/1.5
+        processHeader.translatesAutoresizingMaskIntoConstraints = false
+        processHeader.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
         let processTitle = LabelField(localizedString("Disk activity processes"))
         processTitle.font = .systemFont(ofSize: 11, weight: .semibold)
+        processTitle.lineBreakMode = .byTruncatingTail
+        processTitle.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
+        let processToggleButton = NSButton(title: localizedString("Show more processes"), target: self, action: #selector(self.toggleActivityProcessesExpanded))
+        processToggleButton.bezelStyle = .inline
+        processToggleButton.isBordered = false
+        processToggleButton.font = .systemFont(ofSize: 11, weight: .medium)
+        processToggleButton.contentTintColor = .controlAccentColor
+        processToggleButton.setContentHuggingPriority(.required, for: .horizontal)
+        processToggleButton.setContentCompressionResistancePriority(.required, for: .horizontal)
+        processToggleButton.isHidden = true
+
+        processHeader.addArrangedSubview(processTitle)
+        processHeader.addArrangedSubview(NSView())
+        processHeader.addArrangedSubview(processToggleButton)
+
         let processHint = LabelField(localizedString("Disk activity process counters, not exact files"))
         processHint.font = .systemFont(ofSize: 10, weight: .regular)
         processHint.textColor = .tertiaryLabelColor
@@ -490,13 +516,14 @@ internal class Preview: PreviewWrapper {
         table.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         self.periodProcessTable = table
         self.periodProcessTitleField = processTitle
+        self.periodProcessToggleButton = processToggleButton
 
         view.addArrangedSubview(coverageStatus)
         view.addArrangedSubview(summary)
-        view.addArrangedSubview(processTitle)
+        view.addArrangedSubview(processHeader)
         view.addArrangedSubview(processHint)
         view.addArrangedSubview(table)
-        [coverageStatus, summary, processTitle, processHint, table].forEach { item in
+        [coverageStatus, summary, processHeader, processHint, table].forEach { item in
             item.translatesAutoresizingMaskIntoConstraints = false
             item.widthAnchor.constraint(equalTo: view.widthAnchor).isActive = true
         }
@@ -758,12 +785,17 @@ internal class Preview: PreviewWrapper {
         })
     }
 
+    @objc private func toggleActivityProcessesExpanded() {
+        self.activityProcessesExpanded.toggle()
+        self.refreshPeriodActivity()
+    }
+
     private func refreshPeriodActivity() {
         let summary = DiskActivityHistoryStore.shared.summary(
             diskID: self.mainID,
             period: self.activityPeriod,
             sort: self.activitySort,
-            limit: self.processLimit
+            limit: self.processDisplayLimit
         )
 
         self.periodReadValueField?.stringValue = Units(bytes: summary.read).getReadableMemory()
@@ -783,7 +815,17 @@ internal class Preview: PreviewWrapper {
         }
         let displayRows = self.periodActivityDisplayRows(from: summary)
         self.periodProcessTitleField?.stringValue = self.periodProcessTitle(for: summary, displayRows: displayRows)
+        self.updateProcessToggle(for: summary)
         self.periodProcessTable?.setRows(displayRows)
+    }
+
+    private var processDisplayLimit: Int {
+        let compactLimit = self.processLimit
+        guard compactLimit > 0 else { return 0 }
+        if self.activityProcessesExpanded {
+            return max(compactLimit, DiskActivityExpandedProcessLimit)
+        }
+        return compactLimit
     }
 
     private func periodActivityDisplayRows(from summary: DiskActivitySummary) -> [DiskActivityProcessDisplayRow] {
@@ -826,6 +868,15 @@ internal class Preview: PreviewWrapper {
             return "\(base) · \(visibleProcessCount)/\(summary.totalProcessCount)"
         }
         return "\(base) · \(visibleProcessCount)/\(summary.totalProcessCount) \(localizedString("shown")) · \(displayRows.count) \(localizedString("rows"))"
+    }
+
+    private func updateProcessToggle(for summary: DiskActivitySummary) {
+        guard let button = self.periodProcessToggleButton else { return }
+        let compactLimit = self.processLimit
+        let canExpand = compactLimit > 0 && summary.totalProcessCount > compactLimit
+        button.isHidden = !canExpand
+        button.title = localizedString(self.activityProcessesExpanded ? "Show fewer processes" : "Show more processes")
+        button.toolTip = localizedString(self.activityProcessesExpanded ? "Fewer process rows are shown" : "More captured processes are available")
     }
 
     private func updatePeriodCoverage(_ coverage: DiskActivityCoverage) {
@@ -1184,7 +1235,7 @@ private struct DiskActivityProcessDisplayRow {
 }
 
 private class DiskActivityProcessTable: NSStackView {
-    private let maxRows: Int = (NumbersOfProcesses.max() ?? 15) + 2
+    private let maxRows: Int = DiskActivityExpandedProcessLimit + 2
     private var rowViews: [DiskActivityProcessRow] = []
 
     init() {
