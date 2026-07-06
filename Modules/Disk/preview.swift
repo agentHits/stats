@@ -12,7 +12,7 @@
 import Cocoa
 import Kit
 
-private let DiskActivityExpandedProcessLimit = 50
+private let diskActivityExpandedProcessLimit = 50
 
 internal class Preview: PreviewWrapper {
     private var mainID: String? = nil
@@ -823,7 +823,7 @@ internal class Preview: PreviewWrapper {
         let compactLimit = self.processLimit
         guard compactLimit > 0 else { return 0 }
         if self.activityProcessesExpanded {
-            return max(compactLimit, DiskActivityExpandedProcessLimit)
+            return max(compactLimit, diskActivityExpandedProcessLimit)
         }
         return compactLimit
     }
@@ -1235,7 +1235,7 @@ private struct DiskActivityProcessDisplayRow {
 }
 
 private class DiskActivityProcessTable: NSStackView {
-    private let maxRows: Int = DiskActivityExpandedProcessLimit + 2
+    private let maxRows: Int = diskActivityExpandedProcessLimit + 2
     private var rowViews: [DiskActivityProcessRow] = []
 
     init() {
