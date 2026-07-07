@@ -241,7 +241,7 @@ public final class BatterySaverPolicy {
     public var state: BatterySaverState {
         self.queue.sync {
             let effectiveProfile: BatterySaverProfile = self.isLowPowerModeEnabledValue ? .minimal : self.profile
-            BatterySaverState(
+            return BatterySaverState(
                 active: self.isBatteryPoweredValue || self.isLowPowerModeEnabledValue,
                 isBatteryPowered: self.isBatteryPoweredValue,
                 isLowPowerModeEnabled: self.isLowPowerModeEnabledValue,
