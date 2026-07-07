@@ -89,7 +89,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
         NotificationCenter.default.addObserver(self, selector: #selector(handleRemoteAuthenticated), name: .remoteAuthenticated, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleRemoteUpdate), name: .remoteUpdate, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleBatterySaverModeDidChange), name: .batterySaverModeDidChange, object: nil)
-        NotificationCenter.default.addObserver(self, selector: #selector(handlePowerStateDidChange(_:)), name: ProcessInfo.powerStateDidChangeNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(handlePowerStateDidChange(_:)), name: NSNotification.Name.NSProcessInfoPowerStateDidChange, object: nil)
         self.startBatterySaverPowerSourceObserver()
         self.refreshPowerSource()
         self.refreshLowPowerMode()
@@ -169,6 +169,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
             guard let context else { return }
             let appDelegate = Unmanaged<AppDelegate>.fromOpaque(context).takeUnretainedValue()
             appDelegate.refreshPowerSource()
+            appDelegate.refreshLowPowerMode()
         }, context).takeRetainedValue()
 
         let runLoop = CFRunLoopGetMain()
