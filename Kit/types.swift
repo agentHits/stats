@@ -216,6 +216,27 @@ public struct BatterySaverState {
     public let isBatteryPowered: Bool
     public let isLowPowerModeEnabled: Bool
     public let profile: BatterySaverProfile
+
+    public var statusTitle: String {
+        if self.active {
+            return localizedString("Economy monitoring")
+        }
+        return localizedString("Normal monitoring")
+    }
+
+    public var statusReason: String {
+        if self.isLowPowerModeEnabled {
+            return localizedString("Low Power Mode is enabled")
+        }
+        if self.isBatteryPowered {
+            return localizedString("Mac is running on battery power")
+        }
+        return localizedString("Power adapter connected")
+    }
+
+    public var statusDescription: String {
+        "\(self.statusTitle) - \(self.statusReason) - \(self.profile.title)"
+    }
 }
 
 public final class BatterySaverPolicy {

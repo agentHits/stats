@@ -746,6 +746,106 @@ public func isNewestVersion(currentVersion: String, latestVersion: String) -> Bo
     return false
 }
 
+public enum NotificationAuthorizationState {
+    case enabled
+    case enabledWithoutAlerts
+    case notDetermined
+    case denied
+    case unknown
+
+    public var title: String {
+        switch self {
+        case .enabled:
+            return localizedString("Notifications are enabled")
+        case .enabledWithoutAlerts:
+            return localizedString("Notifications are allowed, but alerts are off")
+        case .notDetermined:
+            return localizedString("Permission not requested")
+        case .denied:
+            return localizedString("Notifications are disabled in macOS")
+        case .unknown:
+            return localizedString("Notification status unavailable")
+        }
+    }
+
+    public var details: String {
+        switch self {
+        case .enabled:
+            return localizedString("Stats AgentHits can show Battery Saver alerts.")
+        case .enabledWithoutAlerts:
+            return localizedString("Enable alerts for Stats AgentHits in System Settings > Notifications if banners are not visible.")
+        case .notDetermined:
+            return localizedString("Click Allow notifications to show the macOS permission request.")
+        case .denied:
+            return localizedString("Enable notifications for Stats AgentHits in System Settings > Notifications, then return to the app.")
+        case .unknown:
+            return localizedString("Open System Settings > Notifications to check Stats AgentHits manually.")
+        }
+    }
+}
+
+private func notificationAuthorizationState(from settings: UNNotificationSettings) -> NotificationAuthorizationState {
+    switch settings.authorizationStatus {
+    case .authorized, .provisional:
+        return settings.alertSetting == .enabled ? .enabled : .enabledWithoutAlerts
+    case .notDetermined:
+        return .notDetermined
+    case .denied:
+        return .denied
+    @unknown default:
+        return .unknown
+    }
+}
+
+public func notificationAuthorizationState(completion: @escaping (NotificationAuthorizationState) -> Void) {
+    let center = UNUserNotificationCenter.current()
+    center.getNotificationSettings { settings in
+        let state = notificationAuthorizationState(from: settings)
+        DispatchQueue.main.async {
+            completion(state)
+        }
+    }
+}
+
+public func requestNotificationAuthorization(completion: ((Bool) -> Void)? = nil) {
+    let center = UNUserNotificationCenter.current()
+    let complete: (Bool) -> Void = { allowed in
+        DispatchQueue.main.async {
+            completion?(allowed)
+        }
+    }
+
+    center.getNotificationSettings { settings in
+        switch settings.authorizationStatus {
+        case .authorized, .provisional:
+            complete(true)
+        case .notDetermined:
+            center.requestAuthorization(options: [.alert, .sound]) { granted, error in
+                complete(granted && error == nil)
+            }
+        case .denied:
+            complete(false)
+        @unknown default:
+            complete(false)
+        }
+    }
+}
+
+public func openSystemNotificationSettings() {
+    let urls = [
+        "x-apple.systempreferences:com.apple.Notifications-Settings.extension",
+        "x-apple.systempreferences:com.apple.preference.notifications",
+        "x-apple.systempreferences:"
+    ]
+
+    for string in urls {
+        guard let url = URL(string: string) else { continue }
+        if NSWorkspace.shared.open(url) {
+            return
+        }
+    }
+}
+
 public func showNotification(title: String, subtitle: String? = nil, userInfo: [AnyHashable: Any] = [:], delegate: UNUserNotificationCenterDelegate? = nil) -> String {
     let id = UUID().uuidString
     
@@ -761,10 +861,12 @@ public func showNotification(title: String, subtitle: String? = nil, userInfo: [
     let center = UNUserNotificationCenter.current()
     center.delegate = delegate
     
-    center.requestAuthorization(options: [.alert, .sound]) { _, _ in }
-    center.add(request) { (error: Error?) in
-        if let err = error {
-            print(err)
+    requestNotificationAuthorization { allowed in
+        guard allowed else { return }
+        center.add(request) { (error: Error?) in
+            if let err = error {
+                print(err)
+            }
         }
     }
     

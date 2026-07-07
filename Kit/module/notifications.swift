@@ -104,10 +104,12 @@ open class NotificationsWrapper: NSStackView {
         let request = UNNotificationRequest(identifier: id, content: content, trigger: nil)
         let center = UNUserNotificationCenter.current()
         
-        center.requestAuthorization(options: [.alert, .sound]) { _, _ in }
-        center.add(request) { (error: Error?) in
-            if let err = error {
-                print(err)
+        requestNotificationAuthorization { allowed in
+            guard allowed else { return }
+            center.add(request) { (error: Error?) in
+                if let err = error {
+                    print(err)
+                }
             }
         }
     }

@@ -53,6 +53,20 @@ open class Window: NSStackView {
     
     private var enableControl: NSControl?
     private var oneViewBtn: NSSwitch?
+    private let batterySaverStatusField: LabelField = {
+        let field = LabelField()
+        field.textColor = .secondaryLabelColor
+        field.lineBreakMode = .byTruncatingMiddle
+        field.widthAnchor.constraint(greaterThanOrEqualToConstant: 230).isActive = true
+        return field
+    }()
+    private let notificationStatusField: LabelField = {
+        let field = LabelField()
+        field.textColor = .secondaryLabelColor
+        field.lineBreakMode = .byTruncatingMiddle
+        field.widthAnchor.constraint(greaterThanOrEqualToConstant: 230).isActive = true
+        return field
+    }()
     
     private let noWidgetsView: EmptyView = EmptyView(msg: localizedString("No available widgets to configure"))
     private let noPopupSettingsView: EmptyView = EmptyView(msg: localizedString("No options to configure for the popup in this module"))
@@ -116,6 +130,10 @@ open class Window: NSStackView {
         
         NotificationCenter.default.addObserver(self, selector: #selector(listenForOneView), name: .toggleOneView, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(listenForToggleView), name: .togglePreview, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(batterySaverModeDidChange), name: .batterySaverModeDidChange, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(applicationDidBecomeActive), name: NSApplication.didBecomeActiveNotification, object: nil)
+        self.updateBatterySaverStatus()
+        self.updateNotificationStatus()
         
         self.segmentedControl?.widthAnchor.constraint(equalTo: self.widthAnchor, constant: -(Constants.Settings.margin*2)).isActive = true
         self.widgetSelector?.widthAnchor.constraint(equalTo: self.widthAnchor, constant: -(Constants.Settings.margin*2)).isActive = true
@@ -126,6 +144,8 @@ open class Window: NSStackView {
     deinit {
         NotificationCenter.default.removeObserver(self, name: .toggleOneView, object: nil)
         NotificationCenter.default.removeObserver(self, name: .togglePreview, object: nil)
+        NotificationCenter.default.removeObserver(self, name: .batterySaverModeDidChange, object: nil)
+        NotificationCenter.default.removeObserver(self, name: NSApplication.didBecomeActiveNotification, object: nil)
     }
     
     required public init?(coder: NSCoder) {
@@ -282,10 +302,20 @@ open class Window: NSStackView {
 
     private func batterySaverSettings() -> NSView {
         PreferencesSection([
+            PreferencesRow(localizedString("Battery status"), component: self.batterySaverStatusField),
             PreferencesRow(localizedString("Battery mode"), component: selectView(
                 action: #selector(self.changeBatterySaverMode),
                 items: BatterySaverProfiles,
                 selected: self.batterySaverProfile.rawValue
+            )),
+            PreferencesRow(localizedString("Notification status"), component: self.notificationStatusField),
+            PreferencesRow(localizedString("Notification permission"), component: buttonView(
+                #selector(self.requestNotificationPermission),
+                text: localizedString("Allow notifications")
+            )),
+            PreferencesRow(localizedString("Notification settings"), component: buttonView(
+                #selector(self.openNotificationSettings),
+                text: localizedString("Open System Settings")
             ))
         ])
     }
@@ -354,6 +384,59 @@ open class Window: NSStackView {
             return
         }
         self.batterySaverProfile = profile
+        self.updateBatterySaverStatus()
+    }
+
+    @objc private func batterySaverModeDidChange() {
+        self.updateBatterySaverStatus()
+    }
+
+    @objc private func applicationDidBecomeActive() {
+        self.updateNotificationStatus()
+    }
+
+    private func updateBatterySaverStatus() {
+        self.batterySaverStatusField.stringValue = BatterySaverPolicy.shared.state.statusDescription
+        self.batterySaverStatusField.toolTip = self.batterySaverStatusField.stringValue
+    }
+
+    private func updateNotificationStatus() {
+        notificationAuthorizationState { [weak self] state in
+            guard let self = self else { return }
+            self.notificationStatusField.stringValue = state.title
+            self.notificationStatusField.toolTip = state.details
+        }
+    }
+
+    @objc private func requestNotificationPermission() {
+        notificationAuthorizationState { [weak self] state in
+            guard let self = self else { return }
+            self.updateNotificationStatus()
+
+            switch state {
+            case .enabled:
+                return
+            case .notDetermined:
+                requestNotificationAuthorization { [weak self] allowed in
+                    self?.updateNotificationStatus()
+                    guard !allowed else { return }
+                    self?.showNotificationPermissionGuidance()
+                }
+            case .enabledWithoutAlerts, .denied, .unknown:
+                self.showNotificationPermissionGuidance()
+            }
+        }
+    }
+
+    @objc private func openNotificationSettings() {
+        openSystemNotificationSettings()
+    }
+
+    private func showNotificationPermissionGuidance() {
+        notificationAuthorizationState { state in
+            showAlert(state.title, state.details, .informational)
+            openSystemNotificationSettings()
+        }
     }
     
     @objc private func listenForOneView(_ notification: Notification) {
