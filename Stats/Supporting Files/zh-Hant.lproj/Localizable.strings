@@ -420,6 +420,7 @@
 "Interface" = "介面";
 "Physical address" = "實體位址";
 "Refresh" = "重新整理";
+"Refresh now" = "Refresh now";
 "Network interface" = "網路介面卡";
 "Total download" = "共下載";
 "Total upload" = "共上傳";
@@ -489,6 +490,16 @@
 "On battery" = "使用電池"; // gemma4:31b
 "Plugged in" = "已連接"; // gemma4:31b
 "Charging" = "充電中"; // gemma4:31b
+"Battery mode" = "Battery mode";
+"Battery Saver Mode" = "Battery Saver Mode";
+"Normal monitoring restored" = "Normal monitoring restored";
+"Mac is running on battery power" = "Mac is running on battery power";
+"Power adapter connected" = "Power adapter connected";
+"Low Power Mode is enabled" = "Low Power Mode is enabled";
+"Stats is using fewer updates" = "Stats is using fewer updates";
+"Minimal" = "Minimal";
+"Balanced" = "Balanced";
+"Detailed" = "Detailed";
 
 // Bluetooth
 "No Bluetooth devices are available" = "沒有可用的藍牙裝置";

@@ -141,6 +141,10 @@ internal class Settings: NSStackView, Settings_v, NSTextFieldDelegate {
                 action: #selector(self.changeNumberOfProcesses),
                 items: NumbersOfProcesses.map{ KeyValue_t(key: "\($0)", value: "\($0)") },
                 selected: "\(self.numberOfProcesses)"
+            )),
+            PreferencesRow(localizedString("Top processes"), component: buttonView(
+                #selector(self.refreshTopProcessesNow),
+                text: localizedString("Refresh now")
             ))
         ]))
         
@@ -298,6 +302,9 @@ internal class Settings: NSStackView, Settings_v, NSTextFieldDelegate {
             Store.shared.set(key: "\(self.title)_processes", value: value)
             self.callbackWhenUpdateNumberOfProcesses()
         }
+    }
+    @objc private func refreshTopProcessesNow() {
+        self.callbackWhenUpdateNumberOfProcesses()
     }
     @objc private func changeReaderType(_ sender: NSMenuItem) {
         guard let key = sender.representedObject as? String else { return }

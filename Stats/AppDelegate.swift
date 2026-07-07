@@ -7,6 +7,7 @@
 //
 
 import Cocoa
+import IOKit.ps
 
 import Kit
 import UserNotifications
@@ -50,6 +51,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
     internal let supportActivity = NSBackgroundActivityScheduler(identifier: "eu.exelban.Stats.support")
     
     internal var clickInNotification: Bool = false
+    private var batterySaverNotificationID: String?
+    private var powerSourceRunLoop: CFRunLoop?
+    private var powerSourceRunLoopSource: CFRunLoopSource?
     
     internal var pauseState: Bool {
         Store.shared.bool(key: "pause", defaultValue: false)
@@ -84,6 +88,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
         NotificationCenter.default.addObserver(self, selector: #selector(handleToggleSettings), name: .toggleSettings, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleRemoteAuthenticated), name: .remoteAuthenticated, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleRemoteUpdate), name: .remoteUpdate, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(handleBatterySaverModeDidChange), name: .batterySaverModeDidChange, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(handlePowerStateDidChange(_:)), name: ProcessInfo.powerStateDidChangeNotification, object: nil)
+        self.startBatterySaverPowerSourceObserver()
+        self.refreshPowerSource()
+        self.refreshLowPowerMode()
         
         NSEvent.addGlobalMonitorForEvents(matching: [.keyDown, .flagsChanged]) { [weak self] event in
             self?.handleKeyEvent(event)
@@ -98,6 +107,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
     }
     
     func applicationWillTerminate(_ aNotification: Notification) {
+        self.stopBatterySaverPowerSourceObserver()
         modules.forEach{ $0.terminate() }
         SystemStats.shared.terminate()
     }
@@ -145,6 +155,76 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
         let hasActive = modules.contains(where: { $0.enabled != false && $0.available != false && !$0.menuBar.widgets.filter({ $0.isActive }).isEmpty })
         if hasActive { return }
         self.ensureSettingsWindow().setIsVisible(true)
+    }
+
+    @objc private func handlePowerStateDidChange(_ notification: Notification) {
+        self.refreshLowPowerMode()
+    }
+
+    private func startBatterySaverPowerSourceObserver() {
+        guard self.powerSourceRunLoopSource == nil else { return }
+
+        let context = UnsafeMutableRawPointer(Unmanaged.passUnretained(self).toOpaque())
+        let source = IOPSNotificationCreateRunLoopSource({ context in
+            guard let context else { return }
+            let appDelegate = Unmanaged<AppDelegate>.fromOpaque(context).takeUnretainedValue()
+            appDelegate.refreshPowerSource()
+        }, context).takeRetainedValue()
+
+        let runLoop = CFRunLoopGetMain()
+        self.powerSourceRunLoop = runLoop
+        self.powerSourceRunLoopSource = source
+        CFRunLoopAddSource(runLoop, source, .defaultMode)
+    }
+
+    private func stopBatterySaverPowerSourceObserver() {
+        guard let runLoop = self.powerSourceRunLoop, let source = self.powerSourceRunLoopSource else { return }
+
+        CFRunLoopRemoveSource(runLoop, source, .defaultMode)
+        self.powerSourceRunLoop = nil
+        self.powerSourceRunLoopSource = nil
+    }
+
+    private func refreshPowerSource() {
+        let snapshot = IOPSCopyPowerSourcesInfo().takeRetainedValue()
+        let sources = IOPSCopyPowerSourcesList(snapshot).takeRetainedValue() as [CFTypeRef]
+        let isBatteryPowered = sources.contains { source in
+            guard let description = IOPSGetPowerSourceDescription(snapshot, source).takeUnretainedValue() as? [String: Any] else {
+                return false
+            }
+            return description[kIOPSPowerSourceStateKey] as? String == "Battery Power"
+        }
+        BatterySaverPolicy.shared.updatePowerSource(isBatteryPowered: isBatteryPowered)
+    }
+
+    private func refreshLowPowerMode() {
+        if #available(macOS 12.0, *) {
+            BatterySaverPolicy.shared.updateLowPowerMode(isEnabled: ProcessInfo.processInfo.isLowPowerModeEnabled)
+        } else {
+            BatterySaverPolicy.shared.updateLowPowerMode(isEnabled: false)
+        }
+    }
+
+    @objc private func handleBatterySaverModeDidChange(_ notification: Notification) {
+        guard let state = notification.userInfo?["state"] as? BatterySaverState else { return }
+
+        if let id = self.batterySaverNotificationID {
+            removeNotification(id)
+            self.batterySaverNotificationID = nil
+        }
+
+        let title = state.active ? localizedString("Battery Saver Mode") : localizedString("Normal monitoring restored")
+        let reason = state.isLowPowerModeEnabled ? localizedString("Low Power Mode is enabled") : localizedString("Mac is running on battery power")
+        let subtitle = state.active ? "\(reason). \(localizedString("Stats is using fewer updates"))" : localizedString("Power adapter connected")
+        let id = showNotification(title: title, subtitle: subtitle, delegate: self)
+        self.batterySaverNotificationID = id
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
+            removeNotification(id)
+            if self?.batterySaverNotificationID == id {
+                self?.batterySaverNotificationID = nil
+            }
+        }
     }
     
     internal func ensureSettingsWindow() -> SettingsWindow {

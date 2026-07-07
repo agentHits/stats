@@ -102,6 +102,8 @@ open class Module {
     
     private let log: NextLog
     private var readers: [Reader_p] = []
+    private var popupVisible: Bool = false
+    private var settingsVisible: Bool = false
     
     private var pauseState: Bool {
         get { Store.shared.bool(key: "pause", defaultValue: false) }
@@ -238,6 +240,13 @@ open class Module {
     public func setReaders(_ list: [Reader_p?]) {
         self.readers = list.filter({ $0 != nil }).map({ $0! as Reader_p })
     }
+
+    public func syncSleepingReadersWithVisibility() {
+        let active = self.popupVisible || self.settingsVisible
+        self.readers.filter{ $0.sleep }.forEach { (reader: Reader_p) in
+            self.setReader(reader, active: active)
+        }
+    }
     
     // determine if module is available (can be overrided in module)
     open func isAvailable() -> Bool { return true }
@@ -259,14 +268,9 @@ open class Module {
     
     // call when popup appear/disappear
     private func popupVisibilityCallback(_ state: Bool) {
+        self.popupVisible = state
         self.readers.filter{ $0.popup || $0.sleep }.forEach { (reader: Reader_p) in
-            if state {
-                reader.unlock()
-                reader.start()
-            } else {
-                reader.pause()
-                reader.lock()
-            }
+            self.setReader(reader, active: state || (reader.sleep && self.settingsVisible))
         }
     }
     
@@ -276,15 +280,21 @@ open class Module {
         if state, let name = notification.userInfo?["module"] as? String, self.config.name != name {
             state = false
         }
+
+        self.settingsVisible = state
         
         self.readers.filter{ $0.preview || $0.sleep }.forEach { (reader: Reader_p) in
-            if state {
-                reader.unlock()
-                reader.start()
-            } else {
-                reader.pause()
-                reader.lock()
-            }
+            self.setReader(reader, active: state || (reader.sleep && self.popupVisible))
+        }
+    }
+
+    private func setReader(_ reader: Reader_p, active: Bool) {
+        if active {
+            reader.unlock()
+            reader.start()
+        } else {
+            reader.pause()
+            reader.lock()
         }
     }
     

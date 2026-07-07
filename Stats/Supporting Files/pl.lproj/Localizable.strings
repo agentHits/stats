@@ -420,6 +420,7 @@
 "Interface" = "Interfejs";
 "Physical address" = "Adres fizyczny";
 "Refresh" = "Odśwież";
+"Refresh now" = "Refresh now";
 "Network interface" = "Interfejs sieciowy";
 "Total download" = "Całkowicie pobrano";
 "Total upload" = "Całkowicie wysłano";
@@ -489,6 +490,16 @@
 "On battery" = "Na baterii";
 "Plugged in" = "Podłączony";
 "Charging" = "Ładowanie";
+"Battery mode" = "Battery mode";
+"Battery Saver Mode" = "Battery Saver Mode";
+"Normal monitoring restored" = "Normal monitoring restored";
+"Mac is running on battery power" = "Mac is running on battery power";
+"Power adapter connected" = "Power adapter connected";
+"Low Power Mode is enabled" = "Low Power Mode is enabled";
+"Stats is using fewer updates" = "Stats is using fewer updates";
+"Minimal" = "Minimal";
+"Balanced" = "Balanced";
+"Detailed" = "Detailed";
 
 // Bluetooth
 "No Bluetooth devices are available" = "Brak dostępnych urządzeń Bluetooth";

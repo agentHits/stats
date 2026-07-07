@@ -420,6 +420,7 @@
 "Interface" = "インターフェイス";
 "Physical address" = "MAC アドレス";
 "Refresh" = "更新";
+"Refresh now" = "Refresh now";
 "Network interface" = "インターフェイス";
 "Total download" = "受信の合計";
 "Total upload" = "送信の合計";
@@ -489,6 +490,16 @@
 "On battery" = "バッテリー駆動"; // gemma4:31b
 "Plugged in" = "電源接続済み"; // gemma4:31b
 "Charging" = "充電中"; // gemma4:31b
+"Battery mode" = "Battery mode";
+"Battery Saver Mode" = "Battery Saver Mode";
+"Normal monitoring restored" = "Normal monitoring restored";
+"Mac is running on battery power" = "Mac is running on battery power";
+"Power adapter connected" = "Power adapter connected";
+"Low Power Mode is enabled" = "Low Power Mode is enabled";
+"Stats is using fewer updates" = "Stats is using fewer updates";
+"Minimal" = "Minimal";
+"Balanced" = "Balanced";
+"Detailed" = "Detailed";
 
 // Bluetooth
 "No Bluetooth devices are available" = "利用可能な Bluetooth デバイスがありません";

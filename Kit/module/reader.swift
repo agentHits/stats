@@ -70,6 +70,7 @@ open class Reader<T: Codable>: NSObject, ReaderInternal_p {
     private var repeatTask: Repeater?
     private var locked: Bool = true
     private var initlizalized: Bool = false
+    private var configuredInterval: Int?
     
     private let activeQueue = DispatchQueue(label: "eu.exelban.readerActiveQueue")
     private var _active: Bool = false
@@ -107,11 +108,18 @@ open class Reader<T: Codable>: NSObject, ReaderInternal_p {
             }
         }
         self.setup()
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(self.batterySaverModeDidChange),
+            name: .batterySaverModeDidChange,
+            object: nil
+        )
         
         debug("Successfully initialize reader", log: self.log)
     }
     
     deinit {
+        NotificationCenter.default.removeObserver(self, name: .batterySaverModeDidChange, object: nil)
         guard self.cache else { return }
         DB.shared.insert(key: "\(self.module.stringValue)@\(self.name)", value: self.value, ts: self.history)
     }
@@ -119,7 +127,8 @@ open class Reader<T: Codable>: NSObject, ReaderInternal_p {
     public func initStoreValues(title: String) {
         guard self.interval == nil else { return }
         let updateInterval = Store.shared.int(key: "\(title)_updateInterval", defaultValue: self.defaultInterval)
-        self.interval = Double(updateInterval)
+        self.configuredInterval = updateInterval
+        self.applyEffectiveInterval(restart: false)
     }
     
     public func callback(_ value: T?) {
@@ -183,8 +192,28 @@ open class Reader<T: Codable>: NSObject, ReaderInternal_p {
     
     public func setInterval(_ value: Int) {
         debug("Set update interval: \(value) sec", log: self.log)
-        self.interval = Double(value)
-        
+        self.configuredInterval = value
+        self.applyEffectiveInterval(restart: true)
+    }
+
+    @objc private func batterySaverModeDidChange() {
+        self.applyEffectiveInterval(restart: true)
+    }
+
+    private func applyEffectiveInterval(restart: Bool) {
+        guard let configuredInterval = self.configuredInterval else { return }
+        let effectiveInterval = BatterySaverPolicy.shared.effectiveInterval(
+            module: self.module,
+            readerName: self.name,
+            baseInterval: configuredInterval,
+            popup: self.popup,
+            preview: self.preview
+        )
+        guard Int(self.interval ?? -1) != effectiveInterval else { return }
+
+        self.interval = Double(effectiveInterval)
+        guard restart else { return }
+
         if self.alignToSecondBoundary {
             self.repeatTask?.pause()
             self.repeatTask = nil
@@ -193,7 +222,7 @@ open class Reader<T: Codable>: NSObject, ReaderInternal_p {
                 self.startAlignedRepeater()
             }
         } else {
-            self.repeatTask?.reset(seconds: value, restart: true)
+            self.repeatTask?.reset(seconds: effectiveInterval, restart: true)
         }
     }
     
@@ -251,7 +280,11 @@ open class Reader<T: Codable>: NSObject, ReaderInternal_p {
         self.sleep = state
 
         if state {
-            self.pause()
+            if self.locked {
+                self.pause()
+            } else {
+                self.start()
+            }
         } else {
             self.start()
         }

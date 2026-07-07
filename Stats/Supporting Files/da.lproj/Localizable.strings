@@ -420,6 +420,7 @@
 "Interface" = "Grænseflade"; // gemma4:31b
 "Physical address" = "Fysisk adresse"; // gemma4:31b
 "Refresh" = "Opdater"; // gemma4:31b
+"Refresh now" = "Refresh now";
 "Network interface" = "Netværksgrænseflade"; // gemma4:31b
 "Total download" = "Samlet download"; // gemma4:31b
 "Total upload" = "Samlet upload"; // gemma4:31b
@@ -489,6 +490,16 @@
 "On battery" = "På batteri"; // gemma4:31b
 "Plugged in" = "Tilsluttet"; // gemma4:31b
 "Charging" = "Oplader"; // gemma4:31b
+"Battery mode" = "Battery mode";
+"Battery Saver Mode" = "Battery Saver Mode";
+"Normal monitoring restored" = "Normal monitoring restored";
+"Mac is running on battery power" = "Mac is running on battery power";
+"Power adapter connected" = "Power adapter connected";
+"Low Power Mode is enabled" = "Low Power Mode is enabled";
+"Stats is using fewer updates" = "Stats is using fewer updates";
+"Minimal" = "Minimal";
+"Balanced" = "Balanced";
+"Detailed" = "Detailed";
 "Fan" = "Blæser";
 "HID sensors" = "HID sensorer";
 "No Bluetooth devices are available" = "Ingen Bluetooth-enheder er tilgængelige"; // gemma4:31b

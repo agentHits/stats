@@ -106,6 +106,10 @@ internal class Settings: NSStackView, Settings_v, NSTextFieldDelegate {
                 action: #selector(changeNumberOfProcesses),
                 items: NumbersOfProcesses.map{ KeyValue_t(key: "\($0)", value: "\($0)") },
                 selected: "\(self.numberOfProcesses)"
+            )),
+            PreferencesRow(localizedString("Top processes"), component: buttonView(
+                #selector(self.refreshTopProcessesNow),
+                text: localizedString("Refresh now")
             ))
         ]))
         
@@ -163,6 +167,10 @@ internal class Settings: NSStackView, Settings_v, NSTextFieldDelegate {
             Store.shared.set(key: "\(self.title)_processes", value: value)
             self.callbackWhenUpdateNumberOfProcesses()
         }
+    }
+
+    @objc private func refreshTopProcessesNow() {
+        self.callbackWhenUpdateNumberOfProcesses()
     }
     @objc private func toggleSplitValue(_ sender: NSControl) {
         self.splitValueState = controlState(sender)

@@ -420,6 +420,7 @@
 "Interface" = "Интерфейс";
 "Physical address" = "Физический адрес";
 "Refresh" = "Обновить";
+"Refresh now" = "Обновить сейчас";
 "Network interface" = "Сетевой интерфейс";
 "Total download" = "Всего скачано";
 "Total upload" = "Всего выгружено";
@@ -489,6 +490,16 @@
 "On battery" = "On battery";
 "Plugged in" = "Plugged in";
 "Charging" = "Charging";
+"Battery mode" = "Режим на батарее";
+"Battery Saver Mode" = "Экономный режим";
+"Normal monitoring restored" = "Обычный мониторинг восстановлен";
+"Mac is running on battery power" = "Mac работает от батареи";
+"Power adapter connected" = "Подключено питание от сети";
+"Low Power Mode is enabled" = "Включен режим энергосбережения macOS";
+"Stats is using fewer updates" = "Stats снижает частоту обновлений";
+"Minimal" = "Минимальный";
+"Balanced" = "Сбалансированный";
+"Detailed" = "Детальный";
 
 // Bluetooth
 "No Bluetooth devices are available" = "Нет доступных устройств Bluetooth";

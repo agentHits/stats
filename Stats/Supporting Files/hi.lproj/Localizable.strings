@@ -420,6 +420,7 @@
 "Interface" = "इंटरफ़ेस";
 "Physical address" = "भौतिक पता";
 "Refresh" = "ताज़ा करें";
+"Refresh now" = "Refresh now";
 "Network interface" = "नेटवर्क इंटरफ़ेस";
 "Total download" = "कुल डाउनलोड";
 "Total upload" = "कुल अपलोड";
@@ -489,6 +490,16 @@
 "On battery" = "बैटरी पर"; // gemma4:31b
 "Plugged in" = "प्लग किया हुआ"; // gemma4:31b
 "Charging" = "चार्ज हो रहा है"; // gemma4:31b
+"Battery mode" = "Battery mode";
+"Battery Saver Mode" = "Battery Saver Mode";
+"Normal monitoring restored" = "Normal monitoring restored";
+"Mac is running on battery power" = "Mac is running on battery power";
+"Power adapter connected" = "Power adapter connected";
+"Low Power Mode is enabled" = "Low Power Mode is enabled";
+"Stats is using fewer updates" = "Stats is using fewer updates";
+"Minimal" = "Minimal";
+"Balanced" = "Balanced";
+"Detailed" = "Detailed";
 
 // Bluetooth
 "No Bluetooth devices are available" = "कोई ब्लूटूथ डिवाइस उपलब्ध नहीं हैं";

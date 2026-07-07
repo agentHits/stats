@@ -420,6 +420,7 @@
 "Interface" = "인터페이스";
 "Physical address" = "MAC 주소";
 "Refresh" = "새로고침";
+"Refresh now" = "Refresh now";
 "Network interface" = "네트워크 인터페이스";
 "Total download" = "총 다운로드";
 "Total upload" = "총 업로드";
@@ -489,6 +490,16 @@
 "On battery" = "배터리 사용 중"; // gemma4:31b
 "Plugged in" = "전원 연결됨"; // gemma4:31b
 "Charging" = "충전 중"; // gemma4:31b
+"Battery mode" = "Battery mode";
+"Battery Saver Mode" = "Battery Saver Mode";
+"Normal monitoring restored" = "Normal monitoring restored";
+"Mac is running on battery power" = "Mac is running on battery power";
+"Power adapter connected" = "Power adapter connected";
+"Low Power Mode is enabled" = "Low Power Mode is enabled";
+"Stats is using fewer updates" = "Stats is using fewer updates";
+"Minimal" = "Minimal";
+"Balanced" = "Balanced";
+"Detailed" = "Detailed";
 
 // Bluetooth
 "No Bluetooth devices are available" = "사용 가능한 블루투스 장치가 없습니다";

@@ -420,6 +420,7 @@
 "Interface" = "Giao diện";
 "Physical address" = "Địa chỉ vật lý";
 "Refresh" = "Làm mới";
+"Refresh now" = "Refresh now";
 "Network interface" = "Giao diện mạng";
 "Total download" = "Tổng dữ liệu tải xuống";
 "Total upload" = "Tổng dữ liệu tải lên";
@@ -489,6 +490,16 @@
 "On battery" = "Đang dùng pin"; // gemma4:31b
 "Plugged in" = "Đã kết nối"; // gemma4:31b
 "Charging" = "Đang sạc"; // gemma4:31b
+"Battery mode" = "Battery mode";
+"Battery Saver Mode" = "Battery Saver Mode";
+"Normal monitoring restored" = "Normal monitoring restored";
+"Mac is running on battery power" = "Mac is running on battery power";
+"Power adapter connected" = "Power adapter connected";
+"Low Power Mode is enabled" = "Low Power Mode is enabled";
+"Stats is using fewer updates" = "Stats is using fewer updates";
+"Minimal" = "Minimal";
+"Balanced" = "Balanced";
+"Detailed" = "Detailed";
 
 // Bluetooth
 "No Bluetooth devices are available" = "Không có thiết bị Bluetooth nào khả dụng";

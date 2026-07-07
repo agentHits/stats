@@ -809,6 +809,18 @@ public class Disk: Module {
         }
         
         self.setReaders([self.capacityReader, self.activityReader, self.processReader])
+        NotificationCenter.default.addObserver(self, selector: #selector(self.batterySaverModeDidChange), name: .batterySaverModeDidChange, object: nil)
+        self.applyBatterySaverPolicy()
+    }
+
+    @objc private func batterySaverModeDidChange() {
+        self.applyBatterySaverPolicy()
+    }
+
+    private func applyBatterySaverPolicy() {
+        self.capacityReader?.sleepMode(state: BatterySaverPolicy.shared.shouldPauseDetailedDiskReader(module: .disk))
+        self.processReader?.sleepMode(state: BatterySaverPolicy.shared.shouldPauseDetailedProcessReader(module: .disk))
+        self.syncSleepingReadersWithVisibility()
     }
 
     private func capacityCallback(_ value: Disks) {

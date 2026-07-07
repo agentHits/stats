@@ -65,6 +65,10 @@ open class Window: NSStackView {
         get { Store.shared.bool(key: "\(self.config.pointee.name)_oneView", defaultValue: false) }
         set { Store.shared.set(key: "\(self.config.pointee.name)_oneView", value: newValue) }
     }
+    private var batterySaverProfile: BatterySaverProfile {
+        get { BatterySaverPolicy.shared.profile }
+        set { BatterySaverPolicy.shared.profile = newValue }
+    }
     
     private var isPreviewAvailable: Bool
     private var isPopupSettingsAvailable: Bool
@@ -265,6 +269,8 @@ open class Window: NSStackView {
     
     private func loadModuleSettings() {
         self.moduleSettingsContainer?.subviews.forEach{ $0.removeFromSuperview() }
+
+        self.moduleSettingsContainer?.addArrangedSubview(self.batterySaverSettings())
         
         if let settingsView = self.moduleSettings {
             settingsView.load(widgets: self.widgets.filter{ $0.isActive }.map{ $0.type })
@@ -272,6 +278,16 @@ open class Window: NSStackView {
         } else {
             self.moduleSettingsContainer?.addArrangedSubview(NSView())
         }
+    }
+
+    private func batterySaverSettings() -> NSView {
+        PreferencesSection([
+            PreferencesRow(localizedString("Battery mode"), component: selectView(
+                action: #selector(self.changeBatterySaverMode),
+                items: BatterySaverProfiles,
+                selected: self.batterySaverProfile.rawValue
+            ))
+        ])
     }
     private func loadWidgetSettings() {
         self.widgetSettingsContainer?.subviews.forEach{ $0.removeFromSuperview() }
@@ -330,6 +346,14 @@ open class Window: NSStackView {
         guard !self.globalOneView else { return }
         self.oneViewState = controlState(sender)
         NotificationCenter.default.post(name: .toggleOneView, object: nil, userInfo: ["module": self.config.pointee.name])
+    }
+
+    @objc private func changeBatterySaverMode(_ sender: NSMenuItem) {
+        guard let key = sender.representedObject as? String,
+              let profile = BatterySaverProfile(rawValue: key) else {
+            return
+        }
+        self.batterySaverProfile = profile
     }
     
     @objc private func listenForOneView(_ notification: Notification) {

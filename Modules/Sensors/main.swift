@@ -85,6 +85,8 @@ public class Sensors: Module {
         }
         
         self.setReaders([self.sensorsReader])
+        NotificationCenter.default.addObserver(self, selector: #selector(self.batterySaverModeDidChange), name: .batterySaverModeDidChange, object: nil)
+        self.applyBatterySaverPolicy()
     }
     
     public override func willTerminate() {
@@ -98,6 +100,21 @@ public class Sensors: Module {
             }
         }
     }
+
+    @objc private func batterySaverModeDidChange() {
+        self.applyBatterySaverPolicy()
+    }
+
+    private func applyBatterySaverPolicy(activeWidgets: [SWidget]? = nil) {
+        let activeWidgets = activeWidgets ?? self.menuBar.widgets.filter{ $0.isActive }
+        let labelOnly = activeWidgets.contains(where: {$0.item is Label}) && activeWidgets.count == 1
+        let batterySaverSleep = BatterySaverPolicy.shared.shouldPauseDetailedSensorReader(
+            module: .sensors,
+            hasActiveWidgets: !activeWidgets.isEmpty
+        )
+        self.sensorsReader?.sleepMode(state: labelOnly || batterySaverSleep)
+        self.syncSleepingReadersWithVisibility()
+    }
     
     private func usageCallback(_ raw: Sensors_List?) {
         guard let value = raw, self.enabled else { return }
@@ -107,7 +124,7 @@ public class Sensors: Module {
         self.notificationsView.usageCallback(value.sensors)
         
         let activeWidgets = self.menuBar.widgets.filter{ $0.isActive }
-        self.sensorsReader?.sleepMode(state: activeWidgets.contains(where: {$0.item is Label}) && activeWidgets.count == 1)
+        self.applyBatterySaverPolicy(activeWidgets: activeWidgets)
         
         activeWidgets.forEach { (w: SWidget) in
             switch w.item {

@@ -420,6 +420,7 @@
 "Interface" = "Interface";
 "Physical address" = "Fysiek adres"; // gemma4:31b
 "Refresh" = "Vernieuwen"; // gemma4:31b
+"Refresh now" = "Refresh now";
 "Network interface" = "Netwerkinterface"; // gemma4:31b
 "Total download" = "Totaal gedownload"; // gemma4:31b
 "Total upload" = "Totaal upload"; // gemma4:31b
@@ -489,6 +490,16 @@
 "On battery" = "Op batterij"; // gemma4:31b
 "Plugged in" = "Aangesloten"; // gemma4:31b
 "Charging" = "Opladen"; // gemma4:31b
+"Battery mode" = "Battery mode";
+"Battery Saver Mode" = "Battery Saver Mode";
+"Normal monitoring restored" = "Normal monitoring restored";
+"Mac is running on battery power" = "Mac is running on battery power";
+"Power adapter connected" = "Power adapter connected";
+"Low Power Mode is enabled" = "Low Power Mode is enabled";
+"Stats is using fewer updates" = "Stats is using fewer updates";
+"Minimal" = "Minimal";
+"Balanced" = "Balanced";
+"Detailed" = "Detailed";
 "Fan" = "Ventilator";
 "HID sensors" = "HID-Sensoren";
 "No Bluetooth devices are available" = "Geen Bluetooth-apparaten beschikbaar"; // gemma4:31b

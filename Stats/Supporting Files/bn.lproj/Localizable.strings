@@ -420,6 +420,7 @@
 "Interface" = "ইন্টারফেস";
 "Physical address" = "ভৌত ঠিকানা";
 "Refresh" = "রিফ্রেশ করুন";
+"Refresh now" = "Refresh now";
 "Network interface" = "নেটওয়ার্ক ইন্টারফেস";
 "Total download" = "মোট ডাউনলোড";
 "Total upload" = "মোট আপলোড";
@@ -489,6 +490,16 @@
 "On battery" = "ব্যাটারিতে"; // gemma4:31b
 "Plugged in" = "সংযুক্ত"; // gemma4:31b
 "Charging" = "চার্জ হচ্ছে"; // gemma4:31b
+"Battery mode" = "Battery mode";
+"Battery Saver Mode" = "Battery Saver Mode";
+"Normal monitoring restored" = "Normal monitoring restored";
+"Mac is running on battery power" = "Mac is running on battery power";
+"Power adapter connected" = "Power adapter connected";
+"Low Power Mode is enabled" = "Low Power Mode is enabled";
+"Stats is using fewer updates" = "Stats is using fewer updates";
+"Minimal" = "Minimal";
+"Balanced" = "Balanced";
+"Detailed" = "Detailed";
 "Not connected" = "সংযুক্ত নয়";
 "Low level notification" = "নিম্ন স্তরের বিজ্ঞপ্তি";
 "No Bluetooth devices are available" = "কোনো Bluetooth ডিভাইস উপলব্ধ নেই"; // gemma4:31b

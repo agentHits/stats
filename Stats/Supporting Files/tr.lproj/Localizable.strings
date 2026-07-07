@@ -420,6 +420,7 @@
 "Interface" = "Arayüz";
 "Physical address" = "Fiziksel adres";
 "Refresh" = "Yenile";
+"Refresh now" = "Refresh now";
 "Network interface" = "Ağ arayüzü";
 "Total download" = "Toplam indirme";
 "Total upload" = "Toplam yükleme";
@@ -489,6 +490,16 @@
 "On battery" = "Pilde"; // gemma4:31b
 "Plugged in" = "Takılı"; // gemma4:31b
 "Charging" = "Şarj oluyor"; // gemma4:31b
+"Battery mode" = "Battery mode";
+"Battery Saver Mode" = "Battery Saver Mode";
+"Normal monitoring restored" = "Normal monitoring restored";
+"Mac is running on battery power" = "Mac is running on battery power";
+"Power adapter connected" = "Power adapter connected";
+"Low Power Mode is enabled" = "Low Power Mode is enabled";
+"Stats is using fewer updates" = "Stats is using fewer updates";
+"Minimal" = "Minimal";
+"Balanced" = "Balanced";
+"Detailed" = "Detailed";
 
 // Bluetooth
 "No Bluetooth devices are available" = "Herhangi bir Bluetooth cihazı mevcut değil";

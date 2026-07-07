@@ -188,6 +188,180 @@ public let ReaderUpdateIntervals: [KeyValue_t] = [
 ]
 public let NumbersOfProcesses: [Int] = [0, 3, 5, 8, 10, 15]
 
+public enum BatterySaverProfile: String {
+    case minimal
+    case balanced
+    case detailed
+
+    public var title: String {
+        switch self {
+        case .minimal:
+            return localizedString("Minimal")
+        case .balanced:
+            return localizedString("Balanced")
+        case .detailed:
+            return localizedString("Detailed")
+        }
+    }
+}
+
+public let BatterySaverProfiles: [KeyValue_t] = [
+    KeyValue_t(key: BatterySaverProfile.minimal.rawValue, value: localizedString("Minimal")),
+    KeyValue_t(key: BatterySaverProfile.balanced.rawValue, value: localizedString("Balanced")),
+    KeyValue_t(key: BatterySaverProfile.detailed.rawValue, value: localizedString("Detailed"))
+]
+
+public struct BatterySaverState {
+    public let active: Bool
+    public let isBatteryPowered: Bool
+    public let isLowPowerModeEnabled: Bool
+    public let profile: BatterySaverProfile
+}
+
+public final class BatterySaverPolicy {
+    public static let shared = BatterySaverPolicy()
+
+    private let queue = DispatchQueue(label: "eu.exelban.Stats.BatterySaverPolicy")
+    private var isBatteryPoweredValue: Bool = false
+    private var isLowPowerModeEnabledValue: Bool = false
+
+    public var profile: BatterySaverProfile {
+        get {
+            BatterySaverProfile(
+                rawValue: Store.shared.string(key: "batterySaverMode", defaultValue: BatterySaverProfile.balanced.rawValue)
+            ) ?? .balanced
+        }
+        set {
+            let previous = self.state
+            Store.shared.set(key: "batterySaverMode", value: newValue.rawValue)
+            self.postStateChanged(previous: previous)
+        }
+    }
+
+    public var state: BatterySaverState {
+        self.queue.sync {
+            let effectiveProfile: BatterySaverProfile = self.isLowPowerModeEnabledValue ? .minimal : self.profile
+            BatterySaverState(
+                active: self.isBatteryPoweredValue || self.isLowPowerModeEnabledValue,
+                isBatteryPowered: self.isBatteryPoweredValue,
+                isLowPowerModeEnabled: self.isLowPowerModeEnabledValue,
+                profile: effectiveProfile
+            )
+        }
+    }
+
+    private init() {}
+
+    @discardableResult
+    public func updatePowerSource(isBatteryPowered: Bool) -> BatterySaverState {
+        let previous = self.state
+        self.queue.sync {
+            self.isBatteryPoweredValue = isBatteryPowered
+        }
+        self.postStateChanged(previous: previous)
+        return self.state
+    }
+
+    @discardableResult
+    public func updateLowPowerMode(isEnabled: Bool) -> BatterySaverState {
+        let previous = self.state
+        self.queue.sync {
+            self.isLowPowerModeEnabledValue = isEnabled
+        }
+        self.postStateChanged(previous: previous)
+        return self.state
+    }
+
+    public func effectiveInterval(module: ModuleType, readerName: String, baseInterval: Int, popup: Bool, preview: Bool) -> Int {
+        let state = self.state
+        guard state.active else { return baseInterval }
+        let minimum = self.minimumInterval(module: module, readerName: readerName, popup: popup, preview: preview, profile: state.profile)
+        return max(baseInterval, minimum)
+    }
+
+    public func shouldPauseDetailedProcessReader(module: ModuleType) -> Bool {
+        let state = self.state
+        guard state.active else { return false }
+        guard state.profile != .detailed else { return false }
+        return module == .disk
+    }
+
+    public func shouldPauseDetailedDiskReader(module: ModuleType) -> Bool {
+        let state = self.state
+        guard state.active else { return false }
+        guard state.profile != .detailed else { return false }
+        return module == .disk
+    }
+
+    public func shouldPauseDetailedSensorReader(module: ModuleType, hasActiveWidgets: Bool) -> Bool {
+        let state = self.state
+        guard state.active else { return false }
+        guard state.profile == .minimal else { return false }
+        guard !hasActiveWidgets else { return false }
+        return module == .sensors
+    }
+
+    private func postStateChanged(previous: BatterySaverState) {
+        let current = self.state
+        guard previous.active != current.active ||
+              previous.isBatteryPowered != current.isBatteryPowered ||
+              previous.isLowPowerModeEnabled != current.isLowPowerModeEnabled ||
+              previous.profile != current.profile else {
+            return
+        }
+        NotificationCenter.default.post(name: .batterySaverModeDidChange, object: nil, userInfo: ["state": current])
+    }
+
+    private func minimumInterval(
+        module: ModuleType,
+        readerName: String,
+        popup: Bool,
+        preview: Bool,
+        profile: BatterySaverProfile
+    ) -> Int {
+        if readerName.contains("ProcessReader") {
+            switch profile {
+            case .minimal: return 60
+            case .balanced: return 30
+            case .detailed: return 30
+            }
+        }
+
+        if popup || preview {
+            switch profile {
+            case .minimal: return 15
+            case .balanced: return 10
+            case .detailed: return 3
+            }
+        }
+
+        switch module {
+        case .CPU, .RAM, .GPU, .sensors:
+            switch profile {
+            case .minimal: return 10
+            case .balanced: return 5
+            case .detailed: return 5
+            }
+        case .disk, .network:
+            switch profile {
+            case .minimal: return 30
+            case .balanced: return 15
+            case .detailed: return 10
+            }
+        default:
+            return baseMonitoringInterval(profile)
+        }
+    }
+
+    private func baseMonitoringInterval(_ profile: BatterySaverProfile) -> Int {
+        switch profile {
+        case .minimal: return 30
+        case .balanced: return 10
+        case .detailed: return 3
+        }
+    }
+}
+
 public let NetworkReaders: [KeyValue_t] = [
     KeyValue_t(key: "interface", value: "Interface based"),
     KeyValue_t(key: "process", value: "Processes based")
@@ -322,6 +496,7 @@ public extension Notification.Name {
     static let remoteAuthenticated = Notification.Name("remoteAuthenticated")
     static let remoteUpdate = Notification.Name("remoteUpdate")
     static let openWindow = Notification.Name("openWindow")
+    static let batterySaverModeDidChange = Notification.Name("batterySaverModeDidChange")
 }
 
 public var isARM: Bool {
