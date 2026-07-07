@@ -13,6 +13,7 @@ import Cocoa
 import Kit
 
 private let diskActivityExpandedProcessLimit = 50
+private let diskActivitySummaryRefreshInterval: TimeInterval = 5
 
 internal class Preview: PreviewWrapper {
     private var mainID: String? = nil
@@ -76,6 +77,7 @@ internal class Preview: PreviewWrapper {
     private var activityPeriod: DiskActivityPeriod = .hour1
     private var activitySort: DiskActivityProcessSort = .total
     private var activityProcessesExpanded: Bool = false
+    private var lastPeriodActivityRefreshAt: TimeInterval = 0
     private var periodReadValueField: ValueField?
     private var periodWriteValueField: ValueField?
     private var periodTotalValueField: ValueField?
@@ -528,7 +530,7 @@ internal class Preview: PreviewWrapper {
             item.widthAnchor.constraint(equalTo: view.widthAnchor).isActive = true
         }
 
-        self.refreshPeriodActivity()
+        self.refreshPeriodActivityIfNeeded(force: true)
 
         return view
     }
@@ -756,6 +758,7 @@ internal class Preview: PreviewWrapper {
         guard let mainID = self.mainID, let update = value.first(where: { $0.uuid == mainID }) else {
             return
         }
+        guard self.isPreviewVisible else { return }
         let read = update.activity.read
         let write = update.activity.write
         
@@ -776,17 +779,31 @@ internal class Preview: PreviewWrapper {
         self.totalWrittenValueField?.stringValue = Units(bytes: stats.writeBytes).getReadableMemory()
         self.totalWrittenValueField?.toolTip = "\(stats.writeBytes / (512 * 1000))"
 
-        self.refreshPeriodActivity()
+        self.refreshPeriodActivityIfNeeded()
     }
 
     internal func processCallback() {
         DispatchQueue.main.async(execute: {
-            self.refreshPeriodActivity()
+            guard self.isPreviewVisible else { return }
+            self.refreshPeriodActivityIfNeeded(force: true)
         })
     }
 
     @objc private func toggleActivityProcessesExpanded() {
         self.activityProcessesExpanded.toggle()
+        self.refreshPeriodActivityIfNeeded(force: true)
+    }
+
+    private var isPreviewVisible: Bool {
+        self.window?.isVisible ?? false
+    }
+
+    private func refreshPeriodActivityIfNeeded(force: Bool = false) {
+        let now = Date().timeIntervalSince1970
+        if !force, now - self.lastPeriodActivityRefreshAt < diskActivitySummaryRefreshInterval {
+            return
+        }
+        self.lastPeriodActivityRefreshAt = now
         self.refreshPeriodActivity()
     }
 
@@ -934,14 +951,14 @@ internal class Preview: PreviewWrapper {
         guard let key = self.selectedKey(from: sender), let period = DiskActivityPeriod(rawValue: key) else { return }
         self.activityPeriod = period
         Store.shared.set(key: "\(self.module.stringValue)_activityPeriod", value: period.rawValue)
-        self.refreshPeriodActivity()
+        self.refreshPeriodActivityIfNeeded(force: true)
     }
 
     @objc private func changeActivitySort(_ sender: Any) {
         guard let key = self.selectedKey(from: sender), let sort = DiskActivityProcessSort(rawValue: key) else { return }
         self.activitySort = sort
         Store.shared.set(key: "\(self.module.stringValue)_activitySort", value: sort.rawValue)
-        self.refreshPeriodActivity()
+        self.refreshPeriodActivityIfNeeded(force: true)
     }
 
     private func selectedKey(from sender: Any) -> String? {
