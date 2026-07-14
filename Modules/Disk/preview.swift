@@ -847,7 +847,10 @@ internal class Preview: PreviewWrapper {
 
     private func periodActivityDisplayRows(from summary: DiskActivitySummary) -> [DiskActivityProcessDisplayRow] {
         var rows = summary.processes.map { DiskActivityProcessDisplayRow(process: $0) }
-        let shareDenominator = max(summary.total, summary.capturedProcessTotal + summary.unattributedTotal)
+        let shareDenominator = max(
+            summary.total,
+            diskActivitySaturatingAdd(summary.capturedProcessTotal, summary.unattributedTotal)
+        )
 
         if summary.hiddenProcessTotal > 0 {
             rows.append(DiskActivityProcessDisplayRow(
@@ -1243,8 +1246,8 @@ private struct DiskActivityProcessDisplayRow {
         self.name = name
         self.read = read
         self.write = write
-        self.total = read + write
-        self.share = shareDenominator == 0 ? 0 : Double(read + write) / Double(shareDenominator)
+        self.total = diskActivitySaturatingAdd(read, write)
+        self.share = shareDenominator == 0 ? 0 : Double(self.total) / Double(shareDenominator)
         self.color = color
         self.tooltip = tooltip
         self.copyText = nil

@@ -267,6 +267,82 @@ final class DiskActivityHistoryTests: XCTestCase {
         XCTAssertFalse(summary.processes.contains(where: { $0.name == "Process 0" }))
     }
 
+    func testDiskActivityHistorySaturatesExtremeCountersWithoutOverflow() throws {
+        let store = DiskActivityHistoryStore(persistenceURL: nil)
+        let now = Date(timeIntervalSince1970: 10_000)
+        let extreme = Disk_process(pid: 100, name: "Extreme", read: .max, write: .max)
+        let control = Disk_process(pid: 101, name: "Control", read: 1, write: 1)
+
+        store.recordDisk(diskID: "main", read: .max, write: .max, at: now)
+        store.recordDisk(diskID: "main", read: 1, write: 1, at: now.addingTimeInterval(1))
+        store.recordProcesses([extreme, control], at: now)
+        store.recordProcesses([
+            Disk_process(pid: 100, name: "Extreme", read: 1, write: 1),
+            control
+        ], at: now.addingTimeInterval(1))
+
+        let summary = store.summary(diskID: "main", period: .hour1, sort: .total, limit: 1, now: now.addingTimeInterval(1))
+
+        XCTAssertEqual(summary.read, Int64.max)
+        XCTAssertEqual(summary.write, Int64.max)
+        XCTAssertEqual(summary.total, Int64.max)
+        XCTAssertEqual(summary.timeline.reduce(Int64(0)) { diskActivitySaturatingAdd($0, $1.total) }, Int64.max)
+        XCTAssertEqual(summary.processes.first?.name, "Extreme")
+        XCTAssertEqual(summary.processes.first?.read, Int64.max)
+        XCTAssertEqual(summary.processes.first?.write, Int64.max)
+        XCTAssertEqual(summary.processes.first?.total, Int64.max)
+        XCTAssertEqual(summary.capturedProcessTotal, Int64.max)
+    }
+
+    func testProcessReaderRejectsCountersOutsideSignedRange() throws {
+        let signedLimit = UInt64(Int64.max)
+
+        XCTAssertNil(ProcessReader.validatedCounters(read: signedLimit, write: 0, startedAt: 1))
+        XCTAssertNil(ProcessReader.validatedCounters(read: 0, write: signedLimit, startedAt: 1))
+        XCTAssertNil(ProcessReader.validatedCounters(read: UInt64.max, write: 0, startedAt: 1))
+
+        let valid = try XCTUnwrap(ProcessReader.validatedCounters(
+            read: signedLimit - 1,
+            write: signedLimit - 1,
+            startedAt: 1
+        ))
+        XCTAssertEqual(valid.read, signedLimit - 1)
+        XCTAssertEqual(valid.write, signedLimit - 1)
+    }
+
+    func testProcessReaderReplacesBaselineForCounterRollbackAndPIDReuse() throws {
+        let pid: Int32 = 42
+        let previous = try XCTUnwrap(ProcessReader.validatedCounters(read: 100, write: 200, startedAt: 10))
+        let current = try XCTUnwrap(ProcessReader.validatedCounters(read: 150, write: 275, startedAt: 10))
+        var baseline = [pid: previous]
+        let delta = try XCTUnwrap(ProcessReader.updateBaseline(for: pid, with: current, in: &baseline))
+
+        XCTAssertEqual(delta.read, 50)
+        XCTAssertEqual(delta.write, 75)
+
+        let rollback = try XCTUnwrap(ProcessReader.validatedCounters(read: 125, write: 250, startedAt: 10))
+        XCTAssertNil(ProcessReader.updateBaseline(for: pid, with: rollback, in: &baseline))
+        XCTAssertEqual(baseline[pid]?.read, 125)
+        let afterRollback = try XCTUnwrap(ProcessReader.validatedCounters(read: 135, write: 270, startedAt: 10))
+        let rollbackDelta = try XCTUnwrap(ProcessReader.updateBaseline(for: pid, with: afterRollback, in: &baseline))
+        XCTAssertEqual(rollbackDelta.read, 10)
+        XCTAssertEqual(rollbackDelta.write, 20)
+
+        let reusedPID = try XCTUnwrap(ProcessReader.validatedCounters(read: 5, write: 10, startedAt: 11))
+        XCTAssertNil(ProcessReader.updateBaseline(for: pid, with: reusedPID, in: &baseline))
+        XCTAssertEqual(baseline[pid]?.startedAt, 11)
+        let afterReuse = try XCTUnwrap(ProcessReader.validatedCounters(read: 8, write: 14, startedAt: 11))
+        let reuseDelta = try XCTUnwrap(ProcessReader.updateBaseline(for: pid, with: afterReuse, in: &baseline))
+        XCTAssertEqual(reuseDelta.read, 3)
+        XCTAssertEqual(reuseDelta.write, 4)
+
+        let disappearedPID: Int32 = 43
+        baseline[disappearedPID] = current
+        baseline = ProcessReader.retainingObservedPIDs([pid], in: baseline)
+        XCTAssertNotNil(baseline[pid])
+        XCTAssertNil(baseline[disappearedPID])
+    }
+
     func testDiskActivityHistoryDoesNotCreatePersistenceFile() throws {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("stats-disk-activity-\(UUID().uuidString)")

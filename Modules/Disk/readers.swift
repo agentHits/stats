@@ -573,16 +573,17 @@ public func getDeviceIOParent(_ obj: io_registry_entry_t, level: Int) -> io_regi
     return parent
 }
 
-struct io {
-    var read: Int
-    var write: Int
+struct ProcessIOCounters {
+    let read: UInt64
+    let write: UInt64
+    let startedAt: UInt64
 }
 
 public class ProcessReader: Reader<[Disk_process]> {
     private let queue = DispatchQueue(label: "eu.exelban.Disk.processReader")
     
-    private var _list: [Int32: io] = [:]
-    private var list: [Int32: io] {
+    private var _list: [Int32: ProcessIOCounters] = [:]
+    private var list: [Int32: ProcessIOCounters] {
         get {
             self.queue.sync { self._list }
         }
@@ -598,15 +599,53 @@ public class ProcessReader: Reader<[Disk_process]> {
     public override func setup() {
         self.setInterval(1)
     }
+
+    static func validatedCounters(read: UInt64, write: UInt64, startedAt: UInt64) -> ProcessIOCounters? {
+        let signedLimit = UInt64(Int64.max)
+        guard read < signedLimit, write < signedLimit else { return nil }
+        return ProcessIOCounters(read: read, write: write, startedAt: startedAt)
+    }
+
+    static func delta(
+        from previous: ProcessIOCounters,
+        to current: ProcessIOCounters
+    ) -> (read: Int, write: Int)? {
+        guard previous.startedAt == current.startedAt,
+              current.read >= previous.read,
+              current.write >= previous.write,
+              let read = Int(exactly: current.read - previous.read),
+              let write = Int(exactly: current.write - previous.write) else {
+            return nil
+        }
+        return (read, write)
+    }
+
+    static func updateBaseline(
+        for pid: Int32,
+        with current: ProcessIOCounters,
+        in snapshot: inout [Int32: ProcessIOCounters]
+    ) -> (read: Int, write: Int)? {
+        guard let previous = snapshot.updateValue(current, forKey: pid) else { return nil }
+        return Self.delta(from: previous, to: current)
+    }
+
+    static func retainingObservedPIDs(
+        _ observedPIDs: Set<Int32>,
+        in snapshot: [Int32: ProcessIOCounters]
+    ) -> [Int32: ProcessIOCounters] {
+        snapshot.filter { observedPIDs.contains($0.key) }
+    }
     
     public override func read() {
         guard self.numberOfProcesses != 0 else {
+            self.list = [:]
             self.callback([])
             return
         }
         guard let output = runProcess(path: "/bin/ps", args: ["-Aceo pid,args", "-r"]) else { return }
         
         var snapshot = self.list
+        var observedPIDs = Set<Int32>()
         var processes: [Disk_process] = []
         output.enumerateLines { (line, _) in
             let str = line.trimmingCharacters(in: .whitespaces)
@@ -620,26 +659,25 @@ public class ProcessReader: Reader<[Disk_process]> {
                     proc_pid_rusage(pid, RUSAGE_INFO_CURRENT, $0)
                 }
             }
-            guard result != -1 else { return }
-            
-            let bytesRead = Int(clamping: usage.ri_diskio_bytesread)
-            let bytesWritten = Int(clamping: usage.ri_diskio_byteswritten)
-            
-            if snapshot[pid] == nil {
-                snapshot[pid] = io(read: bytesRead, write: bytesWritten)
+            guard result == 0 else { return }
+
+            guard let current = Self.validatedCounters(
+                read: usage.ri_diskio_bytesread,
+                write: usage.ri_diskio_byteswritten,
+                startedAt: usage.ri_proc_start_abstime
+            ) else {
+                snapshot.removeValue(forKey: pid)
+                return
             }
-            
-            if let v = snapshot[pid] {
-                let read = bytesRead - v.read
-                let write = bytesWritten - v.write
-                if read != 0 || write != 0 {
-                    processes.append(Disk_process(pid: Int(pid), name: name, read: read, write: write))
-                }
+
+            observedPIDs.insert(pid)
+            guard let delta = Self.updateBaseline(for: pid, with: current, in: &snapshot),
+                  delta.read != 0 || delta.write != 0 else {
+                return
             }
-            
-            snapshot[pid]?.read = bytesRead
-            snapshot[pid]?.write = bytesWritten
+            processes.append(Disk_process(pid: Int(pid), name: name, read: delta.read, write: delta.write))
         }
+        snapshot = Self.retainingObservedPIDs(observedPIDs, in: snapshot)
         self.list = snapshot
         DiskActivityHistoryStore.shared.recordProcesses(processes)
         

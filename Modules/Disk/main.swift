@@ -270,6 +270,12 @@ public enum DiskActivityProcessSort: String, CaseIterable, Codable {
     }
 }
 
+func diskActivitySaturatingAdd(_ lhs: Int64, _ rhs: Int64) -> Int64 {
+    let (sum, overflow) = lhs.addingReportingOverflow(rhs)
+    guard overflow else { return sum }
+    return rhs >= 0 ? .max : .min
+}
+
 public struct DiskActivityProcessSummary: Codable {
     public let identity: String
     public let pid: Int
@@ -287,7 +293,7 @@ public struct DiskActivityTimelinePoint: Codable {
     public let write: Int64
 
     public var total: Int64 {
-        self.read + self.write
+        diskActivitySaturatingAdd(self.read, self.write)
     }
 }
 
@@ -392,8 +398,8 @@ public final class DiskActivityHistoryStore {
         self.queue.sync {
             let bucketTS = self.bucketStart(for: date)
             if let idx = self.snapshot.disk.firstIndex(where: { $0.ts == bucketTS && $0.diskID == diskID }) {
-                self.snapshot.disk[idx].read += safeRead
-                self.snapshot.disk[idx].write += safeWrite
+                self.snapshot.disk[idx].read = diskActivitySaturatingAdd(self.snapshot.disk[idx].read, safeRead)
+                self.snapshot.disk[idx].write = diskActivitySaturatingAdd(self.snapshot.disk[idx].write, safeWrite)
                 self.snapshot.disk[idx].peakRead = max(self.snapshot.disk[idx].peakRead, safeRead)
                 self.snapshot.disk[idx].peakWrite = max(self.snapshot.disk[idx].peakWrite, safeWrite)
             } else {
@@ -418,8 +424,8 @@ public final class DiskActivityHistoryStore {
         let active = processes
             .filter { $0.read > 0 || $0.write > 0 }
             .sorted { lhs, rhs in
-                let lhsTotal = Int64(max(0, lhs.read)) + Int64(max(0, lhs.write))
-                let rhsTotal = Int64(max(0, rhs.read)) + Int64(max(0, rhs.write))
+                let lhsTotal = diskActivitySaturatingAdd(Int64(max(0, lhs.read)), Int64(max(0, lhs.write)))
+                let rhsTotal = diskActivitySaturatingAdd(Int64(max(0, rhs.read)), Int64(max(0, rhs.write)))
                 if lhsTotal == rhsTotal {
                     return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
                 }
@@ -435,8 +441,8 @@ public final class DiskActivityHistoryStore {
                 let safeRead = Int64(max(0, process.read))
                 let safeWrite = Int64(max(0, process.write))
                 if let idx = self.snapshot.processes.firstIndex(where: { $0.ts == bucketTS && ($0.identity == identity || $0.pid == process.pid) }) {
-                    self.snapshot.processes[idx].read += safeRead
-                    self.snapshot.processes[idx].write += safeWrite
+                    self.snapshot.processes[idx].read = diskActivitySaturatingAdd(self.snapshot.processes[idx].read, safeRead)
+                    self.snapshot.processes[idx].write = diskActivitySaturatingAdd(self.snapshot.processes[idx].write, safeWrite)
                     self.snapshot.processes[idx].pid = process.pid
                     if process.bundleIdentifier != nil {
                         self.snapshot.processes[idx].bundleIdentifier = process.bundleIdentifier
@@ -484,8 +490,8 @@ public final class DiskActivityHistoryStore {
             }
             let processBuckets = self.snapshot.processes.filter { $0.ts >= minTS }
 
-            let read = diskBuckets.reduce(Int64(0)) { $0 + $1.read }
-            let write = diskBuckets.reduce(Int64(0)) { $0 + $1.write }
+            let read = diskBuckets.reduce(Int64(0)) { diskActivitySaturatingAdd($0, $1.read) }
+            let write = diskBuckets.reduce(Int64(0)) { diskActivitySaturatingAdd($0, $1.write) }
             let peakRead = diskBuckets.map { $0.peakRead }.max() ?? 0
             let peakWrite = diskBuckets.map { $0.peakWrite }.max() ?? 0
             let timeline = self.timeline(from: diskBuckets, startTS: minTS, endTS: nowTS, points: timelinePoints)
@@ -495,8 +501,8 @@ public final class DiskActivityHistoryStore {
             processBuckets.forEach { bucket in
                 let groupKey = self.groupKey(for: bucket, in: grouped)
                 if var existing = grouped[groupKey] {
-                    existing.read += bucket.read
-                    existing.write += bucket.write
+                    existing.read = diskActivitySaturatingAdd(existing.read, bucket.read)
+                    existing.write = diskActivitySaturatingAdd(existing.write, bucket.write)
                     existing.pid = bucket.pid
                     if bucket.bundleIdentifier != nil {
                         existing.identity = bucket.identity
@@ -519,14 +525,18 @@ public final class DiskActivityHistoryStore {
                 }
             }
 
-            let capturedProcessRead = grouped.values.reduce(Int64(0)) { $0 + $1.read }
-            let capturedProcessWrite = grouped.values.reduce(Int64(0)) { $0 + $1.write }
-            let capturedProcessTotal = capturedProcessRead + capturedProcessWrite
+            let capturedProcessRead = grouped.values.reduce(Int64(0)) { diskActivitySaturatingAdd($0, $1.read) }
+            let capturedProcessWrite = grouped.values.reduce(Int64(0)) { diskActivitySaturatingAdd($0, $1.write) }
+            let capturedProcessTotal = diskActivitySaturatingAdd(capturedProcessRead, capturedProcessWrite)
             let unattributedRead = max(0, read - capturedProcessRead)
             let unattributedWrite = max(0, write - capturedProcessWrite)
-            let shareDenominator = max(read + write, capturedProcessTotal + unattributedRead + unattributedWrite)
+            let unattributedTotal = diskActivitySaturatingAdd(unattributedRead, unattributedWrite)
+            let shareDenominator = max(
+                diskActivitySaturatingAdd(read, write),
+                diskActivitySaturatingAdd(capturedProcessTotal, unattributedTotal)
+            )
             let rows = grouped.values.map { bucket -> DiskActivityProcessSummary in
-                let total = bucket.read + bucket.write
+                let total = diskActivitySaturatingAdd(bucket.read, bucket.write)
                 let share = shareDenominator == 0 ? 0 : Double(total) / Double(shareDenominator)
                 return DiskActivityProcessSummary(
                     identity: bucket.identity,
@@ -556,15 +566,15 @@ public final class DiskActivityHistoryStore {
             }
             let visibleRows = Array(rows.prefix(limit))
             let hiddenRows = rows.dropFirst(max(0, limit))
-            let hiddenProcessRead = hiddenRows.reduce(Int64(0)) { $0 + $1.read }
-            let hiddenProcessWrite = hiddenRows.reduce(Int64(0)) { $0 + $1.write }
-            let hiddenProcessTotal = hiddenProcessRead + hiddenProcessWrite
+            let hiddenProcessRead = hiddenRows.reduce(Int64(0)) { diskActivitySaturatingAdd($0, $1.read) }
+            let hiddenProcessWrite = hiddenRows.reduce(Int64(0)) { diskActivitySaturatingAdd($0, $1.write) }
+            let hiddenProcessTotal = diskActivitySaturatingAdd(hiddenProcessRead, hiddenProcessWrite)
 
             return DiskActivitySummary(
                 period: period,
                 read: read,
                 write: write,
-                total: read + write,
+                total: diskActivitySaturatingAdd(read, write),
                 peakRead: peakRead,
                 peakWrite: peakWrite,
                 capturedProcessRead: capturedProcessRead,
@@ -575,7 +585,7 @@ public final class DiskActivityHistoryStore {
                 hiddenProcessTotal: hiddenProcessTotal,
                 unattributedRead: unattributedRead,
                 unattributedWrite: unattributedWrite,
-                unattributedTotal: unattributedRead + unattributedWrite,
+                unattributedTotal: unattributedTotal,
                 diskSampleCount: diskBuckets.count,
                 processSampleCount: processBuckets.count,
                 totalProcessCount: rows.count,
@@ -663,8 +673,8 @@ public final class DiskActivityHistoryStore {
             let segmentEnd = idx == count - 1 ? endTS + self.bucketSize : segmentStart + step
             let segment = buckets.filter { $0.ts >= segmentStart && $0.ts < segmentEnd }
             return DiskActivityTimelinePoint(
-                read: segment.reduce(Int64(0)) { $0 + $1.read },
-                write: segment.reduce(Int64(0)) { $0 + $1.write }
+                read: segment.reduce(Int64(0)) { diskActivitySaturatingAdd($0, $1.read) },
+                write: segment.reduce(Int64(0)) { diskActivitySaturatingAdd($0, $1.write) }
             )
         }
     }
@@ -722,8 +732,8 @@ public final class DiskActivityHistoryStore {
         let keep = Set(bucketIndexes.sorted { lhs, rhs in
             let lhsBucket = self.snapshot.processes[lhs]
             let rhsBucket = self.snapshot.processes[rhs]
-            let lhsTotal = lhsBucket.read + lhsBucket.write
-            let rhsTotal = rhsBucket.read + rhsBucket.write
+            let lhsTotal = diskActivitySaturatingAdd(lhsBucket.read, lhsBucket.write)
+            let rhsTotal = diskActivitySaturatingAdd(rhsBucket.read, rhsBucket.write)
             if lhsTotal == rhsTotal {
                 return lhsBucket.name.localizedCaseInsensitiveCompare(rhsBucket.name) == .orderedAscending
             }
