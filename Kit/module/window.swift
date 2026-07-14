@@ -305,7 +305,7 @@ open class Window: NSStackView {
             PreferencesRow(localizedString("Battery status"), component: self.batterySaverStatusField),
             PreferencesRow(localizedString("Battery mode"), component: selectView(
                 action: #selector(self.changeBatterySaverMode),
-                items: BatterySaverProfiles,
+                items: batterySaverProfiles,
                 selected: self.batterySaverProfile.rawValue
             )),
             PreferencesRow(localizedString("Notification status"), component: self.notificationStatusField),

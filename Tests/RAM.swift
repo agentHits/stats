@@ -136,7 +136,7 @@ final class RAMTests: XCTestCase {
     }
 
     func testTopProcessDecodesCachedRowsWithoutOwner() throws {
-        let data = try XCTUnwrap(#"{"pid":1,"name":"cached","usage":1024}"#.data(using: .utf8))
+        let data = Data(#"{"pid":1,"name":"cached","usage":1024}"#.utf8)
         let process = try JSONDecoder().decode(TopProcess.self, from: data)
 
         XCTAssertEqual(process.pid, 1)

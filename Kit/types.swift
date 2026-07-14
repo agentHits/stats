@@ -205,7 +205,7 @@ public enum BatterySaverProfile: String {
     }
 }
 
-public let BatterySaverProfiles: [KeyValue_t] = [
+public let batterySaverProfiles: [KeyValue_t] = [
     KeyValue_t(key: BatterySaverProfile.minimal.rawValue, value: localizedString("Minimal")),
     KeyValue_t(key: BatterySaverProfile.balanced.rawValue, value: localizedString("Balanced")),
     KeyValue_t(key: BatterySaverProfile.detailed.rawValue, value: localizedString("Detailed"))
